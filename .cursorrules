@@ -1,0 +1,87 @@
+# Pi-Sat Voice Assistant Development Rules
+
+## Project Context
+Pi-Sat is a Raspberry Pi 5 voice assistant with Hailo AI accelerator for Home Assistant control. The system follows local-first architecture with hardware-accelerated inference.
+
+## Core Philosophy
+- **KISS Principle**: Keep It Simple, Stupid
+- **Minimal Elegant Code**: No overcomplication
+- **Minimal Comments**: Only critical ones
+- **Modular System**: Each component independent and focused
+- **Local-First**: Everything runs on-device with Hailo acceleration
+
+## Architecture (Desired State)
+```
+Wake Word → VAD Recording → Hailo Whisper STT → HA Conversation API → TTS Response
+```
+
+### Components
+1. **Wake Word Detection** (`modules/wake_word.py`)
+   - Uses openWakeWord for activation
+   - Configurable models and thresholds
+   - Continuous listening with cooldown
+
+2. **Voice Activity Detection** (`modules/vad.py`) 
+   - WebRTC VAD for speech boundaries
+   - Smart silence detection
+   - Automatic recording start/stop
+
+3. **Speech-to-Text** (`modules/hailo_stt.py`)
+   - Hailo-accelerated Whisper inference
+   - CPU fallback for development
+   - 16kHz audio processing
+
+4. **Natural Language Understanding**
+   - Home Assistant Conversation API
+   - No local LLM required
+   - Uses real device/room knowledge
+
+5. **Text-to-Speech**
+   - Piper TTS for responses
+   - Local voice synthesis
+   - Confirmation dialogs
+
+6. **Orchestrator** (`voice_assistant.py`)
+   - Main event loop
+   - Component coordination
+   - Audio stream management
+
+## Configuration (`config.py`)
+- Central configuration with environment overrides
+- Audio settings (16kHz, 20ms frames)
+- Wake word models and thresholds
+- Home Assistant connection details
+- Hardware vs software backends
+
+## Development Principles
+1. **Modular Design**: One component per change
+2. **Config-Driven**: No hard-coded values
+3. **Graceful Degradation**: Hailo → CPU fallback
+4. **Independent Testing**: Each module testable alone
+5. **Error Recovery**: Fail gracefully, continue operation
+
+## Code Standards
+- Minimal dependencies
+- Environment variable configuration
+- Type hints where helpful
+- Logging for debugging
+- Exception handling with fallbacks
+
+## Hardware Targets
+- **Development**: Ubuntu/CPU with mock HA
+- **Production**: Raspberry Pi 5 + Hailo-8 + real HA
+
+## File Structure (Desired)
+```
+pi-sat/
+├── voice_assistant.py      # Main orchestrator
+├── config.py              # Central configuration  
+├── modules/
+│   ├── wake_word.py       # openWakeWord integration
+│   ├── vad.py             # WebRTC VAD + recording
+│   ├── hailo_stt.py       # Hailo Whisper STT
+│   ├── home_assistant.py  # HA Conversation API
+│   └── tts.py             # Piper TTS responses
+├── requirements.txt       # Dependencies
+└── setup.sh              # System setup
+``` 

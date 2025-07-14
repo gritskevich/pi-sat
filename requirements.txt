@@ -1,0 +1,9 @@
+openwakeword>=0.6.0
+pyaudio>=0.2.11
+webrtcvad>=2.0.10
+requests>=2.31.0
+numpy>=1.24.0,<2.0.0
+sounddevice>=0.4.6
+tflite-runtime>=2.13.0
+openai-whisper>=20231117
+soundfile>=0.12.1 
