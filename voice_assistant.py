@@ -5,7 +5,7 @@ import pyaudio
 import numpy as np
 from modules.wake_word import WakeWordDetector
 from modules.vad import CommandRecorder
-from modules.hailo_stt import HailoSTT
+from modules.stt import SpeechToText
 import config
 
 logging.basicConfig(
@@ -20,7 +20,7 @@ class VoiceOrchestrator:
         self.audio = pyaudio.PyAudio()
         self.wake_detector = WakeWordDetector()
         self.command_recorder = CommandRecorder(self.audio)
-        self.hailo_stt = HailoSTT()
+        self.stt = SpeechToText()
         self.stream = None
         self.last_reset_time = 0
         
@@ -67,7 +67,7 @@ class VoiceOrchestrator:
         # Record and transcribe
         command_audio = self.command_recorder.record_command()
         if len(command_audio) > 0:
-            transcription = self.hailo_stt.transcribe(command_audio)
+            transcription = self.stt.transcribe(command_audio)
             if transcription:
                 logger.info(f"Command: '{transcription}'")
                 return transcription
