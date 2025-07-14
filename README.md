@@ -28,7 +28,6 @@ sudo journalctl -u pi-sat.service -f  # View logs
 Environment variables override `config.py` defaults:
 - `HA_URL` - Home Assistant URL  
 - `HA_TOKEN` - Long-lived access token
-- `HAILO_STT_USE_HAILO=true` - Enable Hailo acceleration (auto-set in service mode)
 
 ## Hardware
 

@@ -16,9 +16,6 @@ MAX_RECORDING_DURATION = 10.0
 
 HAILO_STT_MODEL = "whisper-small"
 HAILO_STT_LANGUAGE = "en"
-HAILO_STT_USE_HAILO = "false"
-HAILO_STT_DEVICE = "hailo"
-HAILO_STT_FALLBACK = "cpu"
 
 HOME_ASSISTANT_URL = os.getenv("HA_URL", "http://homeassistant.local:8123")
 HOME_ASSISTANT_TOKEN = os.getenv("HA_TOKEN", "")
