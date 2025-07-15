@@ -33,6 +33,10 @@ ENV/
 *.tflite
 models/
 
+# Hailo models and assets
+speech_recognition/app/hefs/
+speech_recognition/app/decoder_assets/
+
 # Configuration
 .env
 config_local.py

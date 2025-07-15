@@ -23,36 +23,6 @@ echo "🐍 Installing Python dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Setup Hailo examples
-echo "🤖 Setting up Hailo examples..."
-HAILO_DIR="lib/hailo-examples"
-
-if [ ! -d "$HAILO_DIR" ]; then
-    echo "📥 Cloning Hailo Application Code Examples..."
-    mkdir -p lib
-    git clone https://github.com/hailo-ai/Hailo-Application-Code-Examples.git "$HAILO_DIR"
-else
-    echo "✅ Hailo examples already cloned"
-fi
-
-# Setup Hailo speech recognition environment
-HAILO_STT_DIR="$HAILO_DIR/runtime/hailo-8/python/speech_recognition"
-echo "🔧 Setting up Hailo STT environment..."
-
-if [ -d "$HAILO_STT_DIR" ]; then
-    cd "$HAILO_STT_DIR"
-    if [ ! -d "whisper_env" ]; then
-        echo "📦 Installing Hailo STT dependencies..."
-        python3 setup.py
-    else
-        echo "✅ Hailo STT environment already exists"
-    fi
-    cd - > /dev/null
-else
-    echo "❌ Hailo STT directory not found: $HAILO_STT_DIR"
-    exit 1
-fi
-
 # Download wake word models
 echo "🔊 Setting up wake word models..."
 python3 -c "
@@ -60,6 +30,26 @@ import openwakeword.utils
 openwakeword.utils.download_models()
 print('Wake word models downloaded successfully')
 "
+
+# Download Hailo Whisper models (if not already present)
+echo "🤖 Checking Hailo Whisper models..."
+if [ -d "speech_recognition" ]; then
+    cd speech_recognition/app
+    
+    # Check if models already exist
+    if [ -d "hefs" ] && [ -d "decoder_assets" ]; then
+        echo "✅ Hailo models already exist, skipping download"
+    else
+        echo "📥 Downloading Hailo models..."
+        chmod +x download_resources.sh
+        ./download_resources.sh
+        echo "✅ Hailo models downloaded successfully"
+    fi
+    
+    cd ../..
+else
+    echo "⚠️  speech_recognition directory not found, skipping Hailo model download"
+fi
 
 # Optional: Install as system service
 if [ "$1" = "--service" ]; then

@@ -14,8 +14,9 @@ SILENCE_DURATION = 1.0
 INITIAL_SILENCE_TIMEOUT = 1.0
 MAX_RECORDING_DURATION = 10.0
 
-HAILO_STT_MODEL = "whisper-small"
+HAILO_STT_MODEL = "whisper-base"
 HAILO_STT_LANGUAGE = "en"
+HAILO_STT_HW_ARCH = "hailo8l"
 
 HOME_ASSISTANT_URL = os.getenv("HA_URL", "http://homeassistant.local:8123")
 HOME_ASSISTANT_TOKEN = os.getenv("HA_TOKEN", "")

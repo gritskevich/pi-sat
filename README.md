@@ -1,6 +1,6 @@
 # Pi-Sat Voice Assistant
 
-Minimal voice assistant for Raspberry Pi 5 with Hailo AI accelerator. Local wake word detection, Whisper STT, and Home Assistant control.
+Minimal voice assistant for Raspberry Pi 5 with Hailo AI accelerator. Local wake word detection, Hailo-accelerated Whisper STT, and Home Assistant control.
 
 ## Setup
 
@@ -33,4 +33,13 @@ Environment variables override `config.py` defaults:
 
 - **Raspberry Pi 5** + Hailo-8 AI accelerator  
 - **Microphone** (USB or HAT)  
-- **Speaker** for responses 
+- **Speaker** for responses
+
+## STT Integration
+
+The system uses Hailo-accelerated Whisper models for real-time speech recognition:
+- **Base model**: 5-second chunks, higher accuracy
+- **Tiny model**: 10-second chunks, faster inference
+- **Hardware**: Hailo-8L accelerator for optimal performance
+- **Preprocessing**: VAD, audio enhancement, mel spectrogram generation
+- **Postprocessing**: Repetition penalty, transcription cleaning 
