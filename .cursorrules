@@ -1,0 +1,124 @@
+# Pi-Sat Voice Assistant Development Rules
+
+## Project Context
+Pi-Sat is a Raspberry Pi 5 voice assistant with Hailo AI accelerator for Home Assistant control. The system follows local-first architecture with hardware-accelerated inference and comprehensive testing.
+
+## Core Philosophy
+- **KISS Principle**: Keep It Simple, Stupid
+- **Minimal Elegant Code**: No overcomplication
+- **Minimal Comments**: Only critical ones
+- **Modular System**: Each component independent and focused
+- **Local-First**: Everything runs on-device with Hailo acceleration
+- **Comprehensive Testing**: Full test coverage with realistic audio samples
+
+## Architecture (Current State)
+```
+Wake Word → VAD Recording → Hailo Whisper STT → HA Conversation API → TTS Response
+```
+
+### Components
+1. **Wake Word Detection** (`modules/wake_word_listener.py`)
+   - Uses openWakeWord for activation
+   - Configurable models and thresholds
+   - Continuous listening with cooldown
+   - Comprehensive false positive testing
+
+2. **Voice Activity Detection** (`modules/speech_recorder.py`) 
+   - WebRTC VAD for speech boundaries
+   - Smart silence detection with 1-second pause detection
+   - Automatic recording start/stop
+   - Debug playback for validation
+
+3. **Speech-to-Text** (`modules/hailo_stt.py`)
+   - Hailo-accelerated Whisper inference
+   - CPU fallback for development
+   - 16kHz audio processing
+
+4. **Natural Language Understanding**
+   - Home Assistant Conversation API
+   - No local LLM required
+   - Uses real device/room knowledge
+
+5. **Text-to-Speech**
+   - Piper TTS for responses
+   - Local voice synthesis
+   - Confirmation dialogs
+
+6. **Orchestrator** (`orchestrator.py`)
+   - Main event loop
+   - Component coordination
+   - Audio stream management
+   - Error handling and recovery
+
+## Configuration (`config.py`)
+- Central configuration with environment overrides
+- Audio settings (16kHz, 20ms frames)
+- Wake word models and thresholds
+- VAD silence threshold and frame duration
+- Home Assistant connection details
+- Hardware vs software backends
+
+## Testing Infrastructure
+- **Comprehensive Test Suite**: 21 tests covering all components
+- **Realistic Audio Samples**: 27 files organized by purpose
+- **False Positive Testing**: 5 dedicated false positive files
+- **Noise Robustness Testing**: Background noise validation
+- **Integration Testing**: Full pipeline validation
+- **Error Condition Testing**: Edge cases and failures
+
+### Audio File Organization
+```
+tests/audio_samples/
+├── wake_word/
+│   ├── positive/          # 8 Alexa wake word files
+│   └── negative/          # 8 false positive files
+├── commands/
+│   ├── simple/            # 1 basic command
+│   ├── complex/           # 3 essential complex commands
+│   └── with_pauses/       # 2 pause detection files
+├── integration/           # 4 full pipeline tests
+└── noise/                 # 1 background noise sample
+```
+
+## Development Principles
+1. **Modular Design**: One component per change
+2. **Config-Driven**: No hard-coded values
+3. **Graceful Degradation**: Hailo → CPU fallback
+4. **Independent Testing**: Each module testable alone
+5. **Error Recovery**: Fail gracefully, continue operation
+6. **KISS Testing**: Essential files only, no redundancy
+
+## Code Standards
+- Minimal dependencies
+- Environment variable configuration
+- Type hints where helpful
+- Logging for debugging
+- Exception handling with fallbacks
+- Comprehensive test coverage
+
+## Hardware Targets
+- **Development**: Ubuntu/CPU with mock HA
+- **Production**: Raspberry Pi 5 + Hailo-8 + real HA
+
+## File Structure (Current)
+```
+pi-sat/
+├── orchestrator.py        # Main orchestrator
+├── config.py             # Central configuration  
+├── pi-sat.sh             # Unified script (test/run/clean)
+├── modules/
+│   ├── wake_word_listener.py  # openWakeWord integration
+│   ├── speech_recorder.py     # WebRTC VAD + recording
+│   ├── hailo_stt.py          # Hailo Whisper STT
+│   ├── home_assistant.py     # HA Conversation API
+│   └── tts.py                # Piper TTS responses
+├── tests/
+│   ├── audio_samples/        # 27 organized test files
+│   ├── test_wake_word.py     # Wake word detection
+│   ├── test_speech_recorder.py # VAD and pause detection
+│   ├── test_noise_robustness.py # Noise robustness testing
+│   ├── test_orchestrator.py  # Main orchestrator
+│   └── test_utils.py         # Test utilities
+├── requirements.txt          # Dependencies
+└── setup.sh                 # System setup
+``` 

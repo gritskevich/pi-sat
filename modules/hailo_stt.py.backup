@@ -1,0 +1,146 @@
+import logging
+import numpy as np
+import tempfile
+import os
+import sys
+import soundfile as sf
+import config
+from .logging_utils import setup_logger, log_info, log_success, log_warning, log_error, log_debug, log_stt
+
+logger = setup_logger(__name__)
+
+class HailoSTT:
+    _instance = None
+    _pipeline = None
+    _initialized = False
+    
+    def __new__(cls, debug=False):
+        if cls._instance is None:
+            cls._instance = super(HailoSTT, cls).__new__(cls)
+            cls._instance.debug = debug
+            cls._instance._setup_hailo_path()
+            cls._instance._load_model()
+        return cls._instance
+    
+    def __init__(self, debug=False):
+        # Already initialized in __new__
+        pass
+        
+    def _setup_hailo_path(self):
+        hailo_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), 
+            "hailo_examples/speech_recognition"
+        )
+        if hailo_path not in sys.path:
+            sys.path.insert(0, hailo_path)
+        
+    def _load_model(self):
+        if HailoSTT._initialized:
+            return
+            
+        if self.debug:
+            log_info(logger, "Loading Hailo STT pipeline")
+        
+        try:
+            from app.whisper_hef_registry import HEF_REGISTRY
+            from app.hailo_whisper_pipeline import HailoWhisperPipeline
+            
+            variant = config.HAILO_STT_MODEL.split("-")[-1]
+            if variant not in ["tiny", "base"]:
+                variant = "base"
+            
+            hw_arch = "hailo8l"
+            
+            base_path = os.path.dirname(os.path.dirname(__file__))
+            hailo_base = os.path.join(base_path, "hailo_examples/speech_recognition")
+            
+            encoder_path = os.path.join(hailo_base, HEF_REGISTRY[variant][hw_arch]["encoder"])
+            decoder_path = os.path.join(hailo_base, HEF_REGISTRY[variant][hw_arch]["decoder"])
+            
+            HailoSTT._pipeline = HailoWhisperPipeline(
+                encoder_path, 
+                decoder_path, 
+                variant, 
+                multi_process_service=False
+            )
+            
+            HailoSTT._initialized = True
+            
+            if self.debug:
+                log_success(logger, f"Loaded Hailo Whisper {variant} model")
+            
+        except Exception as e:
+            log_error(logger, f"Failed to load Hailo model: {e}")
+            HailoSTT._pipeline = None
+            
+    def transcribe(self, audio_data):
+        if len(audio_data) == 0:
+            return ""
+            
+        if HailoSTT._pipeline:
+            return self._transcribe_hailo(audio_data)
+        else:
+            if self.debug:
+                log_warning(logger, "STT not available - no model loaded")
+            return ""
+            
+    def _transcribe_hailo(self, audio_data):
+        try:
+            # Convert bytes to numpy array if needed
+            if isinstance(audio_data, bytes):
+                audio_array = np.frombuffer(audio_data, dtype=np.int16)
+            else:
+                audio_array = audio_data
+            
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+                sf.write(tmp_path, audio_array, config.SAMPLE_RATE)
+            
+            from common.audio_utils import load_audio
+            from common.preprocessing import preprocess, improve_input_audio
+            from common.postprocessing import clean_transcription
+            
+            sampled_audio = load_audio(tmp_path)
+            sampled_audio, start_time = improve_input_audio(sampled_audio, vad=True)
+            
+            chunk_offset = max(0, start_time - 0.2)
+            chunk_length = 10 if "tiny" in config.HAILO_STT_MODEL else 5
+            
+            mel_spectrograms = preprocess(
+                sampled_audio,
+                is_nhwc=True,
+                chunk_length=chunk_length,
+                chunk_offset=chunk_offset
+            )
+            
+            for mel in mel_spectrograms:
+                HailoSTT._pipeline.send_data(mel)
+                transcription = clean_transcription(HailoSTT._pipeline.get_transcription())
+                os.unlink(tmp_path)
+                return transcription.strip()
+            
+            os.unlink(tmp_path)
+            return ""
+                
+        except Exception as e:
+            log_error(logger, f"Hailo STT error: {e}")
+            return ""
+    
+    def is_available(self):
+        return HailoSTT._pipeline is not None
+    
+    def cleanup(self):
+        """Clean up Hailo pipeline resources"""
+        if HailoSTT._pipeline:
+            try:
+                HailoSTT._pipeline.stop()
+                HailoSTT._pipeline = None
+                HailoSTT._initialized = False
+                if self.debug:
+                    log_info(logger, "Hailo pipeline cleaned up")
+            except Exception as e:
+                log_error(logger, f"Error cleaning up Hailo pipeline: {e}")
+    
+    def __del__(self):
+        """Destructor to ensure cleanup"""
+        self.cleanup() 

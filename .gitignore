@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+debug_audio/
+*.wav.tmp
+benchmark_results*.json
+
+# Audio files - exclude generated samples
+# Keep: wake_word samples (hand-crafted), noise, stt, e2e reference
+# Regenerate with: scripts/generate_*.py
+tests/audio_samples/_cache_tts/
+tests/audio_samples/e2e_french/
+tests/audio_samples/integration/
+tests/audio_samples/language_tests/english/
+tests/audio_samples/language_tests/french/
+tests/audio_samples/language_tests/french_full/
+tests/audio_samples/language_tests/french_full_elevenlabs/
+tests/audio_samples/synthetic/
+tests/audio_samples/commands/
+
+# Music library - user-specific content
+playlist/
+*.mp3
+
+# TTS voice models - download from HuggingFace
+# See INSTALL.md for download instructions
+resources/voices/*.onnx
+resources/voices/*.onnx.json

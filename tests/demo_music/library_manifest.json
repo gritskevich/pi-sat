@@ -1,0 +1,128 @@
+{
+  "library": {
+    "Disney": [
+      {
+        "title": "Let It Go",
+        "artist": "Frozen",
+        "album": "Frozen OST",
+        "duration": 180
+      },
+      {
+        "title": "Do You Want to Build a Snowman",
+        "artist": "Frozen",
+        "album": "Frozen OST",
+        "duration": 210
+      },
+      {
+        "title": "How Far I'll Go",
+        "artist": "Moana",
+        "album": "Moana OST",
+        "duration": 180
+      },
+      {
+        "title": "Circle of Life",
+        "artist": "Lion King",
+        "album": "Lion King OST",
+        "duration": 240
+      },
+      {
+        "title": "A Whole New World",
+        "artist": "Aladdin",
+        "album": "Aladdin OST",
+        "duration": 200
+      }
+    ],
+    "The Beatles": [
+      {
+        "title": "Hey Jude",
+        "artist": "The Beatles",
+        "album": "Hey Jude",
+        "duration": 240
+      },
+      {
+        "title": "Let It Be",
+        "artist": "The Beatles",
+        "album": "Let It Be",
+        "duration": 220
+      },
+      {
+        "title": "Yellow Submarine",
+        "artist": "The Beatles",
+        "album": "Revolver",
+        "duration": 180
+      },
+      {
+        "title": "Here Comes the Sun",
+        "artist": "The Beatles",
+        "album": "Abbey Road",
+        "duration": 200
+      },
+      {
+        "title": "Come Together",
+        "artist": "The Beatles",
+        "album": "Abbey Road",
+        "duration": 260
+      }
+    ],
+    "Kids Songs": [
+      {
+        "title": "Baby Shark",
+        "artist": "Pinkfong",
+        "album": "Kids Hits",
+        "duration": 120
+      },
+      {
+        "title": "Wheels on the Bus",
+        "artist": "Kids Songs",
+        "album": "Nursery Rhymes",
+        "duration": 150
+      },
+      {
+        "title": "Old MacDonald",
+        "artist": "Kids Songs",
+        "album": "Nursery Rhymes",
+        "duration": 140
+      },
+      {
+        "title": "Twinkle Twinkle",
+        "artist": "Kids Songs",
+        "album": "Nursery Rhymes",
+        "duration": 100
+      }
+    ],
+    "Classical": [
+      {
+        "title": "F\u00fcr Elise",
+        "artist": "Beethoven",
+        "album": "Classical Favorites",
+        "duration": 180
+      },
+      {
+        "title": "Canon in D",
+        "artist": "Pachelbel",
+        "album": "Baroque",
+        "duration": 300
+      },
+      {
+        "title": "Moonlight Sonata",
+        "artist": "Beethoven",
+        "album": "Piano Sonatas",
+        "duration": 360
+      }
+    ]
+  },
+  "stats": {
+    "total_songs": 17,
+    "total_artists": 4,
+    "total_albums": 13,
+    "total_duration": 3460,
+    "generated": 17,
+    "failed": 0
+  },
+  "favorites": [
+    "Disney/Frozen - Let It Go.mp3",
+    "The Beatles/The Beatles - Hey Jude.mp3",
+    "Kids Songs/Pinkfong - Baby Shark.mp3",
+    "Classical/Beethoven - F\u00fcr Elise.mp3"
+  ]
+}

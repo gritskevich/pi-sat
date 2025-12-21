@@ -1,0 +1,142 @@
+════════════════════════════════════════════════════════════════════════════════
+                    STT BENCHMARK - QUICK START GUIDE
+════════════════════════════════════════════════════════════════════════════════
+
+📊 WHAT IT DOES
+───────────────
+Compares Native Whisper (CPU) vs Hailo Whisper (NPU) performance on RPi 5.
+
+Measures:
+  • Cold start (model load time)
+  • Transcription speed (RTF = processing_time / audio_duration)
+  • CPU/Memory usage
+  • Temperature (throttling check)
+  • Throughput (files/sec)
+
+════════════════════════════════════════════════════════════════════════════════
+
+🚀 QUICK START
+───────────────
+
+1. Test Hailo only (no extra dependencies):
+   $ ./pi-sat.sh benchmark_stt --engine hailo
+
+2. Install native whisper for comparison:
+   $ pip install faster-whisper
+
+3. Full benchmark (both engines):
+   $ ./pi-sat.sh benchmark_stt
+
+════════════════════════════════════════════════════════════════════════════════
+
+⚙️  COMMON COMMANDS
+───────────────────
+
+# Quick test (1 run, 3 files)
+./pi-sat.sh benchmark_stt --runs 1 --files 3
+
+# Thorough test (5 runs, 10 files)
+./pi-sat.sh benchmark_stt --runs 5 --files 10
+
+# Hailo only
+./pi-sat.sh benchmark_stt --engine hailo
+
+# Native only
+./pi-sat.sh benchmark_stt --engine native
+
+# Custom output file
+./pi-sat.sh benchmark_stt --output my_test.json
+
+════════════════════════════════════════════════════════════════════════════════
+
+📋 OUTPUT EXAMPLE
+─────────────────
+
+🔧 HAILO
+────────────────────────────────────────────────────────────────────────────────
+  Cold Start (Model Load):  3.12s        ← One-time cost
+  Transcription Time:        0.487s       ← Per-file average
+  Real-Time Factor (RTF):    0.232x       ← 4.3x faster than real-time!
+  Throughput:                2.05 files/sec
+  CPU Usage:                 18.7%        ← Low = NPU doing work
+  Memory Delta:              42.1 MB
+  CPU Temperature:           48.1°C       ← Cool = no throttling
+
+🔧 NATIVE
+────────────────────────────────────────────────────────────────────────────────
+  Cold Start (Model Load):  2.34s
+  Transcription Time:        1.245s
+  Real-Time Factor (RTF):    0.594x       ← 1.7x faster than real-time
+  Throughput:                0.80 files/sec
+  CPU Usage:                 42.3%        ← High = CPU doing work
+  Memory Delta:              158.2 MB
+  CPU Temperature:           54.2°C
+
+⚡ COMPARISON
+────────────────────────────────────────────────────────────────────────────────
+  Hailo Speedup:             2.56x faster  ← THE KEY NUMBER
+
+════════════════════════════════════════════════════════════════════════════════
+
+🎯 HOW TO INTERPRET
+───────────────────
+
+RTF (Real-Time Factor):
+  RTF < 1.0  = Faster than real-time ✅
+  RTF = 1.0  = Real-time speed
+  RTF > 1.0  = Slower than real-time ❌
+
+  Lower is better!
+  RTF 0.5 = Can process 1 hour of audio in 30 minutes
+
+Speedup:
+  > 2.0x  = Hailo is significantly faster ✅
+  1.5-2x  = Moderate improvement
+  < 1.5x  = Marginal benefit, maybe not worth it
+
+Temperature:
+  < 60°C = Normal ✅
+  60-70° = Warm but OK
+  > 70°  = Hot, may throttle ⚠️
+
+════════════════════════════════════════════════════════════════════════════════
+
+📁 OUTPUT FILES
+───────────────
+
+benchmark_results.json  ← Machine-readable results
+  {
+    "timestamp": "2025-12-20 12:34:56",
+    "system": "Raspberry Pi 5 (8GB)",
+    "results": [ ... detailed metrics ... ]
+  }
+
+════════════════════════════════════════════════════════════════════════════════
+
+🔧 TROUBLESHOOTING
+──────────────────
+
+"No test files found"
+  → Music suite: python scripts/generate_music_test_audio.py --languages fr
+  → Language suite: python scripts/generate_language_test_audio.py
+
+"faster-whisper not installed"
+  → Run: pip install faster-whisper
+  → Or use: --engine hailo
+
+High temperature
+  → Reduce workload: --runs 1 --files 3
+  → Ensure adequate cooling
+
+════════════════════════════════════════════════════════════════════════════════
+
+📚 MORE INFO
+────────────
+
+Full docs:  scripts/BENCHMARK_README.md
+Summary:    BENCHMARK_POC.md
+Help:       ./pi-sat.sh benchmark_stt --help
+
+════════════════════════════════════════════════════════════════════════════════
+
+Created: 2025-12-20 | Status: Ready to Use ✅
