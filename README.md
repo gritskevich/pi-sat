@@ -52,6 +52,8 @@ cp /path/to/your/music/*.mp3 ~/Music/pisat/
 
 **Full installation guide:** [INSTALL.md](INSTALL.md)
 
+> **Note:** Large binaries excluded from git (.mp3, .wav, .onnx, .hef, venv, cache). Download voice models and generate test audio per INSTALL.md.
+
 ---
 
 ## Usage
