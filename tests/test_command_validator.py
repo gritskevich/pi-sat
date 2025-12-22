@@ -55,7 +55,7 @@ class TestCommandValidatorFrench:
         def mock_is_empty():
             return False
         def mock_search(query):
-            return [("Frozen.mp3", 0.9)]
+            return ("Frozen.mp3", 0.9)
 
         monkeypatch.setattr(validator_fr.music_library, 'is_empty', mock_is_empty)
         monkeypatch.setattr(validator_fr.music_library, 'search', mock_search)
@@ -81,7 +81,7 @@ class TestCommandValidatorFrench:
         def mock_is_empty():
             return False
         def mock_search(query):
-            return [("test_song.mp3", 0.6)]
+            return ("test_song.mp3", 0.6)
 
         monkeypatch.setattr(validator_fr.music_library, 'is_empty', mock_is_empty)
         monkeypatch.setattr(validator_fr.music_library, 'search', mock_search)
@@ -107,7 +107,7 @@ class TestCommandValidatorFrench:
         def mock_is_empty():
             return False
         def mock_search(query):
-            return []
+            return None
 
         monkeypatch.setattr(validator_fr.music_library, 'is_empty', mock_is_empty)
         monkeypatch.setattr(validator_fr.music_library, 'search', mock_search)

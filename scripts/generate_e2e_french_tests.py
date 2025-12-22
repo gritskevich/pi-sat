@@ -10,6 +10,8 @@ import os
 import sys
 import subprocess
 import tempfile
+import json
+import wave
 from pathlib import Path
 from elevenlabs import ElevenLabs
 import config
@@ -37,6 +39,53 @@ NEGATIVE_TESTS = [
 ]
 
 WAKE_PAUSE_S = 0.3  # Same as integration tests
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+METADATA_PATH = PROJECT_ROOT / "tests" / "audio_samples" / "test_metadata.json"
+SUITE_ID = "e2e_french"
+
+
+def _wav_duration_s(path: Path) -> float:
+    with wave.open(str(path), "rb") as wf:
+        return wf.getnframes() / float(wf.getframerate())
+
+
+def _load_metadata(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _default_usage_block() -> dict:
+    return {
+        "description": "Centralized test metadata for DRY test suites",
+        "layout": {
+            "suites": "Mapping of suite_id -> suite definition",
+            "suites.<suite_id>.tests.positive": "List of positive test cases",
+            "suites.<suite_id>.tests.negative": "List of negative test cases",
+        },
+        "fields": {
+            "id": "Unique test identifier",
+            "file": "Path to audio file (relative to repo root)",
+            "full_phrase": "Complete phrase including wake word",
+            "wake_word": "Wake word used (or null)",
+            "command": "Command part only (without wake word)",
+            "intent": "Expected intent classification",
+            "parameters": "Expected intent parameters",
+            "song_in_playlist": "Expected song file in playlist/ folder (optional)",
+            "language": "Language code (fr/en)",
+            "duration_s": "Total audio duration in seconds (optional)",
+            "wake_word_end_s": "When wake word ends (seconds from start)",
+            "pause_end_s": "When pause ends (seconds from start)",
+            "command_start_s": "When command starts (seconds from start)",
+            "command_duration_s": "Duration of command part only (optional)",
+        },
+    }
+
 
 def _generate_tts_segment(client: ElevenLabs, text: str, voice_id: str) -> bytes:
     """Generate TTS audio and convert to 16kHz mono WAV."""
@@ -98,10 +147,11 @@ def _concatenate_segments(segments: list[bytes], output_path: Path):
 def generate_test_audio(output_dir: Path):
     """Generate test audio files using ElevenLabs with segment-based approach."""
 
-    # Get API key from config
-    api_key = config.ELEVENLABS_API_KEY
+    # Get API key from env first, then config fallback
+    api_key = os.getenv("ELEVENLABS_API_KEY") or getattr(config, "ELEVENLABS_API_KEY", None)
     if not api_key or api_key == "your_key_here":
         print("Error: ELEVENLABS_API_KEY not set in config.py")
+        print("Or export it: export ELEVENLABS_API_KEY='your_key'")
         print("Add it to config.py: ELEVENLABS_API_KEY = 'your_key'")
         sys.exit(1)
 
@@ -175,7 +225,6 @@ def generate_test_audio(output_dir: Path):
 
     # Create manifest
     manifest_path = output_dir / "manifest.json"
-    import json
     manifest = {
         "metadata": {
             "wake_word_duration_s": wake_duration,
@@ -211,7 +260,123 @@ def generate_test_audio(output_dir: Path):
     with open(manifest_path, 'w', encoding='utf-8') as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
+    # Update centralized metadata (tracked) for DRY test suites
+    metadata = _load_metadata(METADATA_PATH)
+    metadata["version"] = "3.0"
+    if not isinstance(metadata.get("suites"), dict):
+        metadata["suites"] = {}
+    if "usage" not in metadata:
+        metadata["usage"] = _default_usage_block()
+
+    existing_suite = metadata["suites"].get(SUITE_ID, {})
+    existing_positive_by_id = {
+        int(t.get("id")): t for t in existing_suite.get("tests", {}).get("positive", []) if "id" in t
+    }
+
+    def _build_positive_case(i: int, command_text: str, intent: str, params: dict) -> dict:
+        rel_file = f"tests/audio_samples/e2e_french/positive/{i:02d}_{intent}.wav"
+        wav_path = PROJECT_ROOT / rel_file
+        total_s = _wav_duration_s(wav_path) if wav_path.exists() else None
+        duration_s = round(total_s, 2) if total_s is not None else None
+        wake_word_end_s = round(wake_duration, 2)
+        pause_end_s = round(wake_duration + WAKE_PAUSE_S, 2)
+        command_start_s = pause_end_s
+        command_duration_s = round(max(0.0, (duration_s or 0.0) - command_start_s), 2) if duration_s else None
+
+        base = {
+            "id": i,
+            "file": rel_file,
+            "full_phrase": f"Alexa. {command_text}",
+            "wake_word": "Alexa",
+            "command": command_text,
+            "intent": intent,
+            "parameters": params,
+            "language": "fr",
+            "duration_s": duration_s,
+            "wake_word_end_s": wake_word_end_s,
+            "pause_end_s": pause_end_s,
+            "command_start_s": command_start_s,
+            "command_duration_s": command_duration_s,
+        }
+
+        existing = existing_positive_by_id.get(i, {})
+        if "song_in_playlist" in existing:
+            base["song_in_playlist"] = existing["song_in_playlist"]
+        return base
+
+    negative_existing_by_id = {
+        int(t.get("id")): t for t in existing_suite.get("tests", {}).get("negative", []) if "id" in t
+    }
+
+    def _build_negative_case(i: int, command_text: str) -> dict:
+        rel_file = f"tests/audio_samples/e2e_french/negative/{i:02d}_no_wake_word.wav"
+        wav_path = PROJECT_ROOT / rel_file
+        total_s = _wav_duration_s(wav_path) if wav_path.exists() else None
+        duration_s = round(total_s, 2) if total_s is not None else None
+
+        base = {
+            "id": i,
+            "file": rel_file,
+            "full_phrase": command_text,
+            "wake_word": None,
+            "command": command_text,
+            "intent": None,
+            "parameters": {},
+            "language": "fr",
+            "should_trigger": False,
+            "reason": "No wake word - should not activate",
+            "duration_s": duration_s,
+        }
+
+        existing = negative_existing_by_id.get(i, {})
+        for key in ("reason",):
+            if key in existing:
+                base[key] = existing[key]
+        return base
+
+    suite = {
+        "generator": "scripts/generate_e2e_french_tests.py",
+        "voice": {
+            "provider": "ElevenLabs",
+            "voice_id": voice_id,
+            "voice_name": "Sarah",
+            "language": "French",
+            "model": "eleven_multilingual_v2",
+        },
+        "structure": {
+            "type": "segment-based",
+            "wake_word": "Alexa",
+            "wake_word_duration_s": wake_duration,
+            "pause_duration_s": WAKE_PAUSE_S,
+            "command_start_s": skip_duration,
+            "description": "Wake word + 0.3s pause + command",
+        },
+        "audio_format": {
+            "format": "WAV",
+            "sample_rate": 16000,
+            "channels": 1,
+            "bit_depth": 16,
+            "encoding": "PCM signed integer",
+        },
+        "tests": {
+            "positive": [
+                _build_positive_case(i, command_text, intent, params)
+                for i, (command_text, intent, params) in enumerate(E2E_TESTS, 1)
+            ],
+            "negative": [
+                _build_negative_case(i, command_text)
+                for i, (command_text, _, __) in enumerate(NEGATIVE_TESTS, 1)
+            ],
+        },
+    }
+
+    metadata["suites"][SUITE_ID] = suite
+
+    with open(METADATA_PATH, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2, ensure_ascii=False)
+
     print(f"\n\n✓ Manifest: {manifest_path}")
+    print(f"✓ Metadata:  {METADATA_PATH}")
     print(f"\n✓ Generated {len(E2E_TESTS)} positive + {len(NEGATIVE_TESTS)} negative tests")
     print(f"✓ Total: {len(E2E_TESTS) + len(NEGATIVE_TESTS)} files")
     print(f"\nStructure: Alexa + {WAKE_PAUSE_S}s pause + command (segment-based)")

@@ -1,0 +1,279 @@
+{
+  "version": "3.0",
+  "suites": {
+    "e2e_french": {
+      "generator": "scripts/generate_e2e_french_tests.py",
+      "voice": {
+        "provider": "ElevenLabs",
+        "voice_id": "EXAVITQu4vr4xnSDxMaL",
+        "voice_name": "Sarah",
+        "language": "French",
+        "model": "eleven_multilingual_v2"
+      },
+      "structure": {
+        "type": "segment-based",
+        "wake_word": "Alexa",
+        "wake_word_duration_s": 0.9665625,
+        "pause_duration_s": 0.3,
+        "command_start_s": 1.2665625,
+        "description": "Wake word + 0.3s pause + command"
+      },
+      "audio_format": {
+        "format": "WAV",
+        "sample_rate": 16000,
+        "channels": 1,
+        "bit_depth": 16,
+        "encoding": "PCM signed integer"
+      },
+      "tests": {
+        "positive": [
+          {
+            "id": 1,
+            "file": "tests/audio_samples/e2e_french/positive/01_play_music.wav",
+            "full_phrase": "Alexa. Je veux écouter maman",
+            "wake_word": "Alexa",
+            "command": "Je veux écouter maman",
+            "intent": "play_music",
+            "parameters": {
+              "query": "maman"
+            },
+            "song_in_playlist": "Louane - maman.mp3",
+            "language": "fr",
+            "duration_s": 2.76,
+            "wake_word_end_s": 0.97,
+            "pause_end_s": 1.27,
+            "command_start_s": 1.27,
+            "command_duration_s": 1.49
+          },
+          {
+            "id": 2,
+            "file": "tests/audio_samples/e2e_french/positive/02_play_music.wav",
+            "full_phrase": "Alexa. Je veux écouter Louane",
+            "wake_word": "Alexa",
+            "command": "Je veux écouter Louane",
+            "intent": "play_music",
+            "parameters": {
+              "query": "louane"
+            },
+            "song_in_playlist": "Louane - *.mp3",
+            "language": "fr",
+            "duration_s": 2.76,
+            "wake_word_end_s": 0.97,
+            "pause_end_s": 1.27,
+            "command_start_s": 1.27,
+            "command_duration_s": 1.49
+          },
+          {
+            "id": 3,
+            "file": "tests/audio_samples/e2e_french/positive/03_play_music.wav",
+            "full_phrase": "Alexa. Je veux écouter Stromae",
+            "wake_word": "Alexa",
+            "command": "Je veux écouter Stromae",
+            "intent": "play_music",
+            "parameters": {
+              "query": "stromae"
+            },
+            "song_in_playlist": "Stromae - Alors on danse - Radio Edit.mp3",
+            "language": "fr",
+            "duration_s": 2.83,
+            "wake_word_end_s": 0.97,
+            "pause_end_s": 1.27,
+            "command_start_s": 1.27,
+            "command_duration_s": 1.56
+          },
+          {
+            "id": 4,
+            "file": "tests/audio_samples/e2e_french/positive/04_play_music.wav",
+            "full_phrase": "Alexa. Je veux écouter On écrit sur les murs",
+            "wake_word": "Alexa",
+            "command": "Je veux écouter On écrit sur les murs",
+            "intent": "play_music",
+            "parameters": {
+              "query": "on écrit sur les murs"
+            },
+            "song_in_playlist": "Kids United - On écrit sur les murs.mp3",
+            "language": "fr",
+            "duration_s": 3.8,
+            "wake_word_end_s": 0.97,
+            "pause_end_s": 1.27,
+            "command_start_s": 1.27,
+            "command_duration_s": 2.53
+          },
+          {
+            "id": 5,
+            "file": "tests/audio_samples/e2e_french/positive/05_play_music.wav",
+            "full_phrase": "Alexa. Je veux écouter Alors on danse",
+            "wake_word": "Alexa",
+            "command": "Je veux écouter Alors on danse",
+            "intent": "play_music",
+            "parameters": {
+              "query": "alors on danse"
+            },
+            "song_in_playlist": "Stromae - Alors on danse - Radio Edit.mp3",
+            "language": "fr",
+            "duration_s": 3.17,
+            "wake_word_end_s": 0.97,
+            "pause_end_s": 1.27,
+            "command_start_s": 1.27,
+            "command_duration_s": 1.9
+          },
+          {
+            "id": 6,
+            "file": "tests/audio_samples/e2e_french/positive/06_play_music.wav",
+            "full_phrase": "Alexa. Tu peux jouer maman",
+            "wake_word": "Alexa",
+            "command": "Tu peux jouer maman",
+            "intent": "play_music",
+            "parameters": {
+              "query": "maman"
+            },
+            "song_in_playlist": "Louane - maman.mp3",
+            "language": "fr",
+            "duration_s": 2.65,
+            "wake_word_end_s": 0.97,
+            "pause_end_s": 1.27,
+            "command_start_s": 1.27,
+            "command_duration_s": 1.38
+          },
+          {
+            "id": 7,
+            "file": "tests/audio_samples/e2e_french/positive/07_play_music.wav",
+            "full_phrase": "Alexa. Tu peux jouer Louane",
+            "wake_word": "Alexa",
+            "command": "Tu peux jouer Louane",
+            "intent": "play_music",
+            "parameters": {
+              "query": "louane"
+            },
+            "song_in_playlist": "Louane - *.mp3",
+            "language": "fr",
+            "duration_s": 2.76,
+            "wake_word_end_s": 0.97,
+            "pause_end_s": 1.27,
+            "command_start_s": 1.27,
+            "command_duration_s": 1.49
+          },
+          {
+            "id": 8,
+            "file": "tests/audio_samples/e2e_french/positive/08_play_music.wav",
+            "full_phrase": "Alexa. Tu peux jouer Stromae",
+            "wake_word": "Alexa",
+            "command": "Tu peux jouer Stromae",
+            "intent": "play_music",
+            "parameters": {
+              "query": "stromae"
+            },
+            "song_in_playlist": "Stromae - Alors on danse - Radio Edit.mp3",
+            "language": "fr",
+            "duration_s": 2.78,
+            "wake_word_end_s": 0.97,
+            "pause_end_s": 1.27,
+            "command_start_s": 1.27,
+            "command_duration_s": 1.51
+          },
+          {
+            "id": 9,
+            "file": "tests/audio_samples/e2e_french/positive/09_play_music.wav",
+            "full_phrase": "Alexa. Tu peux mettre On écrit sur les murs",
+            "wake_word": "Alexa",
+            "command": "Tu peux mettre On écrit sur les murs",
+            "intent": "play_music",
+            "parameters": {
+              "query": "on écrit sur les murs"
+            },
+            "song_in_playlist": "Kids United - On écrit sur les murs.mp3",
+            "language": "fr",
+            "duration_s": 3.54,
+            "wake_word_end_s": 0.97,
+            "pause_end_s": 1.27,
+            "command_start_s": 1.27,
+            "command_duration_s": 2.27
+          },
+          {
+            "id": 10,
+            "file": "tests/audio_samples/e2e_french/positive/10_play_music.wav",
+            "full_phrase": "Alexa. Tu peux mettre Alors on danse",
+            "wake_word": "Alexa",
+            "command": "Tu peux mettre Alors on danse",
+            "intent": "play_music",
+            "parameters": {
+              "query": "alors on danse"
+            },
+            "song_in_playlist": "Stromae - Alors on danse - Radio Edit.mp3",
+            "language": "fr",
+            "duration_s": 3.07,
+            "wake_word_end_s": 0.97,
+            "pause_end_s": 1.27,
+            "command_start_s": 1.27,
+            "command_duration_s": 1.8
+          }
+        ],
+        "negative": [
+          {
+            "id": 1,
+            "file": "tests/audio_samples/e2e_french/negative/01_no_wake_word.wav",
+            "full_phrase": "Joue de la musique",
+            "wake_word": null,
+            "command": "Joue de la musique",
+            "intent": null,
+            "parameters": {},
+            "language": "fr",
+            "should_trigger": false,
+            "reason": "No wake word - should not activate",
+            "duration_s": 1.33
+          },
+          {
+            "id": 2,
+            "file": "tests/audio_samples/e2e_french/negative/02_no_wake_word.wav",
+            "full_phrase": "Tu peux mettre Frozen",
+            "wake_word": null,
+            "command": "Tu peux mettre Frozen",
+            "intent": null,
+            "parameters": {},
+            "language": "fr",
+            "should_trigger": false,
+            "reason": "No wake word - should not activate",
+            "duration_s": 1.57
+          },
+          {
+            "id": 3,
+            "file": "tests/audio_samples/e2e_french/negative/03_no_wake_word.wav",
+            "full_phrase": "Mets Kids United",
+            "wake_word": null,
+            "command": "Mets Kids United",
+            "intent": null,
+            "parameters": {},
+            "language": "fr",
+            "should_trigger": false,
+            "reason": "No wake word - should not activate",
+            "duration_s": 1.57
+          }
+        ]
+      }
+    }
+  },
+  "usage": {
+    "description": "Centralized test metadata for DRY test suites",
+    "layout": {
+      "suites": "Mapping of suite_id -> suite definition",
+      "suites.<suite_id>.tests.positive": "List of positive test cases",
+      "suites.<suite_id>.tests.negative": "List of negative test cases"
+    },
+    "fields": {
+      "id": "Unique test identifier",
+      "file": "Path to audio file (relative to repo root)",
+      "full_phrase": "Complete phrase including wake word",
+      "wake_word": "Wake word used (or null)",
+      "command": "Command part only (without wake word)",
+      "intent": "Expected intent classification",
+      "parameters": "Expected intent parameters",
+      "song_in_playlist": "Expected song file in playlist/ folder (optional)",
+      "language": "Language code (fr/en)",
+      "duration_s": "Total audio duration in seconds (optional)",
+      "wake_word_end_s": "When wake word ends (seconds from start)",
+      "pause_end_s": "When pause ends (seconds from start)",
+      "command_start_s": "When command starts (seconds from start)",
+      "command_duration_s": "Duration of command part only (optional)"
+    }
+  }
+}

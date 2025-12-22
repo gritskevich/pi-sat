@@ -84,7 +84,7 @@ class CommandProcessor:
             music_library = self.mpd_controller.get_music_library()
             self.validator = CommandValidator(
                 music_library=music_library,
-                language='fr',  # TODO: Get from config
+                language=getattr(config, 'HAILO_STT_LANGUAGE', 'fr'),
                 debug=debug
             )
         else:
@@ -281,8 +281,20 @@ class CommandProcessor:
             return None
 
         try:
+            # Primary classification (configured language)
             intent = self.intent_engine.classify(text)
-            return intent
+            if intent:
+                return intent
+
+            # Fallback classification (FR <-> EN) for occasional wrong-language transcriptions
+            primary_language = getattr(self.intent_engine, 'language', None) or getattr(config, 'HAILO_STT_LANGUAGE', 'fr')
+            if primary_language in ('fr', 'en'):
+                fallback_language = 'en' if primary_language == 'fr' else 'fr'
+                if self.debug:
+                    log_debug(self.logger, f"🌐 No intent in {primary_language}, trying fallback language: {fallback_language}")
+                return self.intent_engine.classify(text, language=fallback_language)
+
+            return None
         except Exception as e:
             log_error(self.logger, f"Intent classification error: {e}")
             return None
@@ -350,13 +362,22 @@ class CommandProcessor:
 
             elif intent_type == 'volume_up':
                 # Validation already spoke "J'augmente le volume"
-                self.mpd_controller.volume_up(config.VOLUME_STEP)
+                self.volume_manager.music_volume_up(config.VOLUME_STEP)
                 return ""
 
             elif intent_type == 'volume_down':
                 # Validation already spoke "Je baisse le volume"
-                self.mpd_controller.volume_down(config.VOLUME_STEP)
+                self.volume_manager.music_volume_down(config.VOLUME_STEP)
                 return ""
+
+            elif intent_type == 'set_volume':
+                # Validation already spoke "Je mets le volume à X%"
+                volume = parameters.get('volume', 50)
+                # Respect MAX_VOLUME safety limit
+                max_vol = min(100, getattr(config, 'MAX_VOLUME', 100))
+                volume = min(volume, max_vol)
+                success = self.volume_manager.set_music_volume(volume)
+                return "" if success else self.tts.get_response_template('error')
 
             elif intent_type == 'add_favorite':
                 # Validation already spoke "D'accord, j'ajoute aux favoris"

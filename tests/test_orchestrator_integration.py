@@ -2,8 +2,8 @@ import unittest
 import os
 import glob
 import numpy as np
-import soundfile as sf
 from tests.test_base import PiSatTestBase
+from tests.test_utils import read_wav_mono_int16
 
 class TestOrchestratorIntegration(PiSatTestBase):
     def setUp(self):
@@ -54,15 +54,13 @@ class TestOrchestratorIntegration(PiSatTestBase):
                 print(f"Testing integration file: {filename}")
                 
                 # Load audio file
-                audio, sample_rate = sf.read(file)
-                if len(audio.shape) > 1:
-                    audio = audio[:, 0]  # Convert to mono
+                audio, sample_rate = read_wav_mono_int16(file)
                 
                 # Test wake word detection using the correct method
                 wake_word_detected = self.wake_word_listener.detect_wake_word(audio)
                 
                 # Test STT transcription
-                audio_bytes = (audio * 32767).astype(np.int16).tobytes()
+                audio_bytes = audio.tobytes()
                 transcription = self.stt.transcribe(audio_bytes)
                 
                 # Verify results
@@ -86,9 +84,7 @@ class TestOrchestratorIntegration(PiSatTestBase):
                 print(f"Testing wake word file: {filename}")
                 
                 # Load and test audio
-                audio, sample_rate = sf.read(file)
-                if len(audio.shape) > 1:
-                    audio = audio[:, 0]
+                audio, sample_rate = read_wav_mono_int16(file)
                 
                 wake_word_detected = self.wake_word_listener.detect_wake_word(audio)
                 
@@ -112,11 +108,8 @@ class TestOrchestratorIntegration(PiSatTestBase):
                 print(f"Testing STT file: {filename}")
                 
                 # Load and test audio
-                audio, sample_rate = sf.read(file)
-                if len(audio.shape) > 1:
-                    audio = audio[:, 0]
-                
-                audio_bytes = (audio * 32767).astype(np.int16).tobytes()
+                audio, sample_rate = read_wav_mono_int16(file)
+                audio_bytes = audio.tobytes()
                 transcription = self.stt.transcribe(audio_bytes)
                 
                 # Verify results

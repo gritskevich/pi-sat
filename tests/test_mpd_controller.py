@@ -35,6 +35,8 @@ class TestMPDController(unittest.TestCase):
         self.mock_client.status.return_value = {
             'state': 'play',
             'volume': '50',
+            'playlistlength': '10',
+            'song': '0',
         }
 
         # Default mock current song
@@ -111,14 +113,14 @@ class TestMPDController(unittest.TestCase):
             {'file': 'Louane - maman.mp3'},
             {'file': 'Kids United - On écrit sur les murs.mp3'},
         ]
+        self.mock_client.playlistfind.return_value = [{'id': '42', 'file': 'Louane - maman.mp3'}]
 
         success, message, _confidence = self.controller.play("maman")
 
         self.assertTrue(success)
         self.assertIn('maman', message.lower())
-        self.mock_client.clear.assert_called_once()
-        self.mock_client.add.assert_called_once()
-        self.mock_client.play.assert_called_once()
+        self.mock_client.clear.assert_not_called()
+        self.mock_client.playid.assert_called_once_with(42)
 
     def test_play_with_query_not_found(self):
         """Test: Play with query not found
@@ -600,6 +602,8 @@ class TestMPDControllerIntegration(unittest.TestCase):
         self.mock_client.status.return_value = {
             'state': 'stop',
             'volume': '50',
+            'playlistlength': '10',
+            'song': '0',
         }
 
         self.mock_client.currentsong.return_value = {
@@ -612,6 +616,7 @@ class TestMPDControllerIntegration(unittest.TestCase):
             {'file': 'Louane - maman.mp3'},
             {'file': 'Kids United - On écrit sur les murs.mp3'},
         ]
+        self.mock_client.playlistfind.return_value = [{'id': '42', 'file': 'Louane - maman.mp3'}]
 
     def tearDown(self):
         """Clean up"""
@@ -628,11 +633,10 @@ class TestMPDControllerIntegration(unittest.TestCase):
 
         self.assertTrue(success)
 
-        # Verify pipeline: search → clear → add → play
+        # Verify pipeline: search → playlist find → play by id (keeps queue for continuous shuffle)
         self.mock_client.listall.assert_called()
-        self.mock_client.clear.assert_called_once()
-        self.mock_client.add.assert_called_once()
-        self.mock_client.play.assert_called_once()
+        self.mock_client.clear.assert_not_called()
+        self.mock_client.playid.assert_called_once_with(42)
 
     def test_volume_duck_and_restore_pipeline(self):
         """Test: Volume ducking pipeline

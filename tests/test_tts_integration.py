@@ -333,22 +333,15 @@ class TestTTSAudioDevice(unittest.TestCase):
         self.assertEqual(tts.output_device, custom_device)
 
     def test_orchestrator_tts_uses_config_device(self):
-        """Test: Orchestrator TTS uses config.PIPER_OUTPUT_DEVICE"""
-        with patch('modules.orchestrator.VolumeManager'), \
-             patch('modules.orchestrator.WakeWordListener'), \
-             patch('modules.orchestrator.SpeechRecorder'), \
-             patch('modules.orchestrator.HailoSTT'), \
-             patch('modules.orchestrator.PiperTTS') as mock_tts_class:
-            
-            orchestrator = Orchestrator(verbose=False, debug=True)
-            
-            # Verify PiperTTS was called with correct output_device
+        """Test: Factory TTS uses config.PIPER_OUTPUT_DEVICE"""
+        from modules.factory import create_tts_engine
+
+        with patch('modules.factory.PiperTTS') as mock_tts_class:
+            _ = create_tts_engine()
+
             mock_tts_class.assert_called_once()
             call_kwargs = mock_tts_class.call_args[1]
-            # Should use config.PIPER_OUTPUT_DEVICE
             self.assertEqual(call_kwargs.get('output_device'), config.PIPER_OUTPUT_DEVICE)
-            
-            orchestrator.stop()
 
 
 if __name__ == '__main__':

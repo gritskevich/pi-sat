@@ -13,7 +13,7 @@ Key Features:
 - Fast, deterministic, offline classification
 
 Architecture:
-- Separate pattern dictionaries per language (INTENT_PATTERNS_EN, INTENT_PATTERNS_FR)
+- Language packs live in `modules/intent_patterns.py` (data-only)
 - Shared fuzzy matching logic (DRY)
 - Language-aware regex extraction
 - Auto-selects language based on config.HAILO_STT_LANGUAGE
@@ -39,577 +39,28 @@ from thefuzz import fuzz, process
 
 import config
 from modules.interfaces import Intent
+from modules.intent_patterns import ACTIVE_INTENTS, LANGUAGE_PATTERNS
 
 # Logging
 logger = logging.getLogger(__name__)
 
-
-# ============================================================================
-# ENGLISH INTENT PATTERNS
-# ============================================================================
-
-INTENT_PATTERNS_EN = {
-    'play_music': {
-        'triggers': [
-            'play',
-            'play song',
-            'play music',
-            'put on',
-            'start playing',
-        ],
-        'extract': r'(?:play|put on|start playing)\s+(.+)',
-        'priority': 10,
+_FAST_INTENT_REGEX = {
+    'en': {
+        'stop': re.compile(r'\b(stop|turn\s+off)\b', re.IGNORECASE),
+        'volume_up': re.compile(
+            r'\b(louder|volume\s+up|turn\s+(?:it\s+)?up|increase\s+volume|raise\s+volume)\b',
+            re.IGNORECASE
+        ),
+        'volume_down': re.compile(
+            r'\b(quieter|volume\s+down|turn\s+(?:it\s+)?down|decrease\s+volume|lower\s+(?:the\s+)?volume)\b',
+            re.IGNORECASE
+        ),
     },
-    'play_favorites': {
-        'triggers': [
-            'play my favorites',
-            'play favorites',
-            'play my favourite',
-            'play favourite',
-            'play what i like',
-        ],
-        'extract': None,
-        'priority': 5,
+    'fr': {
+        'stop': re.compile(r'\b(arr[êe]t(?:e|er)|stop|éteins|eteins)\b', re.IGNORECASE),
+        'volume_up': re.compile(r'\b(plus\s+fort|plus\s+haut|monte(?:r)?|augmente(?:r)?)\b', re.IGNORECASE),
+        'volume_down': re.compile(r'\b(moins\s+fort|plus\s+bas|baisse(?:r)?|diminue(?:r)?)\b', re.IGNORECASE),
     },
-    'pause': {
-        'triggers': [
-            'pause',
-            'pause music',
-            'pause song',
-            'pause playback',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'resume': {
-        'triggers': [
-            'resume',
-            'continue',
-            'unpause',
-            'keep playing',
-            'start again',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'stop': {
-        'triggers': [
-            'stop',
-            'stop music',
-            'stop playing',
-            'turn off',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'next': {
-        'triggers': [
-            'next',
-            'next song',
-            'next track',
-            'skip',
-            'skip song',
-            'skip this',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'previous': {
-        'triggers': [
-            'previous',
-            'previous song',
-            'previous track',
-            'go back',
-            'back',
-            'last song',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'volume_up': {
-        'triggers': [
-            'louder',
-            'volume up',
-            'turn it up',
-            'increase volume',
-            'raise volume',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'volume_down': {
-        'triggers': [
-            'quieter',
-            'volume down',
-            'turn it down',
-            'decrease volume',
-            'lower volume',
-            'lower the volume',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'add_favorite': {
-        'triggers': [
-            'i love this',
-            'i love this song',
-            'love this',
-            'like this',
-            'like this song',
-            'add to favorites',
-            'add to favourites',
-            'favorite this',
-            'favourite this',
-            'save this',
-            'save this song',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'sleep_timer': {
-        'triggers': [
-            'stop in 30 minutes',
-            'stop in 15 minutes',
-            'stop in 60 minutes',
-            'turn off in 30 minutes',
-            'sleep timer 30 minutes',
-            'set sleep timer',
-            'set timer',
-        ],
-        'extract': r'(?:stop|turn off|timer)\s+(?:in\s+)?(\d+)\s*(?:minute|min)',
-        'priority': 20,
-    },
-    'repeat_song': {
-        'triggers': [
-            'repeat this',
-            'repeat this song',
-            'play this again',
-            'play this on repeat',
-            'keep repeating',
-            'loop this',
-            'loop this song',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'repeat_off': {
-        'triggers': [
-            'stop repeating',
-            'turn off repeat',
-            'no more repeat',
-            'repeat off',
-            'stop looping',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'shuffle_on': {
-        'triggers': [
-            'shuffle',
-            'turn on shuffle',
-            'shuffle mode',
-            'play random',
-            'random songs',
-            'mix it up',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'shuffle_off': {
-        'triggers': [
-            'stop shuffle',
-            'turn off shuffle',
-            'no shuffle',
-            'shuffle off',
-            'play in order',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'play_next': {
-        'triggers': [
-            'play frozen next',
-            'play beatles next',
-            'next play frozen',
-            'add frozen to next',
-        ],
-        'extract': r'(?:play|next|add)\s+(.+?)\s+(?:next|after this)',
-        'priority': 15,
-    },
-    'add_to_queue': {
-        'triggers': [
-            'add frozen to queue',
-            'add beatles',
-            'queue frozen',
-            'add to playlist',
-        ],
-        'extract': r'(?:add|queue)\s+(.+?)(?:\s+to\s+(?:queue|playlist))?',
-        'priority': 10,
-    },
-    'set_alarm': {
-        'triggers': [
-            'wake me up at 7',
-            'set alarm for 7 am',
-            'wake me at 7 with frozen',
-            'alarm at 7',
-            'morning alarm 7 am',
-        ],
-        'extract': r'(?:wake|alarm)\s+(?:me\s+)?(?:up\s+)?(?:at\s+|for\s+)?(\d{1,2}(?::\d{2})?(?:\s*(?:am|pm))?)',
-        'priority': 15,
-    },
-    'cancel_alarm': {
-        'triggers': [
-            'cancel alarm',
-            'cancel my alarm',
-            'turn off alarm',
-            'no alarm',
-            'delete alarm',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'check_bedtime': {
-        'triggers': [
-            'what is my bedtime',
-            'when is bedtime',
-            'what time is bedtime',
-            'when do i go to bed',
-            'check bedtime',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'check_time_limit': {
-        'triggers': [
-            'how much time left',
-            'how much time do i have',
-            'time remaining',
-            'check my time',
-            'how long can i listen',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'set_bedtime': {
-        'triggers': [
-            'set bedtime to 9 pm',
-            'change bedtime to 9',
-            'bedtime at 9',
-            'make bedtime 9 pm',
-        ],
-        'extract': r'(?:set|change|make)\s+bedtime\s+(?:to\s+|at\s+)?(\d{1,2}(?::\d{2})?(?:\s*(?:am|pm))?)',
-        'priority': 15,
-    },
-}
-
-
-# ============================================================================
-# FRENCH INTENT PATTERNS
-# ============================================================================
-
-INTENT_PATTERNS_FR = {
-    'play_music': {
-        'triggers': [
-            'joue',
-            'joue chanson',
-            'joue musique',
-            'mets',
-            'mettre',
-            'lance',
-            'joue moi',
-            'mets moi',
-            'mets-moi',
-            'fais jouer',
-            'fais moi écouter',
-            'fais-moi écouter',
-            'tu peux jouer',
-            'tu peux mettre',
-            'peux tu jouer',
-            'peux tu mettre',
-            'peux jouer',
-            'peux mettre',
-            'mets la chanson',
-            'je veux écouter',
-            'je veux entendre',
-            'je voudrais écouter',
-            'j\'aimerais écouter',
-            'j\'aimerais entendre',
-            'je vais écouter',
-        ],
-        'extract': r'(?:joue|mets|lance|peux\s+(?:tu\s+)?jouer|tu\s+peux\s+jouer)\s+(?:moi\s+)?(.+)',
-        'priority': 10,
-    },
-    'play_favorites': {
-        'triggers': [
-            'joue mes favoris',
-            'joue mes préférés',
-            'joue ce que j\'aime',
-            'joue favoris',
-            'mes favoris',
-            'mes préférés',
-        ],
-        'extract': None,
-        'priority': 5,
-    },
-    'pause': {
-        'triggers': [
-            'pause',
-            'mets en pause',
-            'pause la musique',
-            'pause chanson',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'resume': {
-        'triggers': [
-            'reprends',
-            'continue',
-            'relance',
-            'enlève la pause',
-            'redémarre',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'stop': {
-        'triggers': [
-            'arrête',
-            'stop',
-            'arrête la musique',
-            'arrête de jouer',
-            'éteins',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'next': {
-        'triggers': [
-            'suivant',
-            'suivante',
-            'chanson suivante',
-            'piste suivante',
-            'passe',
-            'skip',
-            'saute',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'previous': {
-        'triggers': [
-            'précédent',
-            'précédente',
-            'chanson précédente',
-            'piste précédente',
-            'retour',
-            'avant',
-            'dernière chanson',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'volume_up': {
-        'triggers': [
-            'plus fort',
-            'monte le volume',
-            'augmente',
-            'plus de volume',
-            'monte',
-            'plus haut',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'volume_down': {
-        'triggers': [
-            'moins fort',
-            'baisse le volume',
-            'diminue',
-            'moins de volume',
-            'baisse',
-            'plus bas',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'add_favorite': {
-        'triggers': [
-            'j\'adore',
-            'j\'adore ça',
-            'j\'aime',
-            'j\'aime cette chanson',
-            'j\'aime ça',
-            'ajoute aux favoris',
-            'ajoute aux préférés',
-            'favori',
-            'sauvegarde',
-            'garde ça',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'sleep_timer': {
-        'triggers': [
-            'arrête dans 30 minutes',
-            'arrête dans 15 minutes',
-            'arrête dans 60 minutes',
-            'arrête dans une demi-heure',
-            'éteins dans 30 minutes',
-            'éteins dans 5 minutes',
-            'stop dans 20 minutes',
-            'stop dans 30 minutes',
-            'minuterie 30 minutes',
-            'mets une minuterie',
-            'minuterie de sommeil',
-        ],
-        'extract': r'(?:arrête|arrete|éteins|eteins|stop|minuterie)\s+(?:dans\s+|de\s+)?(\d+|une\s+demi-heure|demi-heure|demie\s+heure)\s*(?:minute|min)?',
-        'priority': 20,
-    },
-    'repeat_song': {
-        'triggers': [
-            'répète',
-            'répète ça',
-            'répète cette chanson',
-            'rejoue',
-            'rejoue ça',
-            'mets en boucle',
-            'en boucle',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'repeat_off': {
-        'triggers': [
-            'arrête de répéter',
-            'enlève la répétition',
-            'plus de répétition',
-            'répétition off',
-            'enlève la boucle',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'shuffle_on': {
-        'triggers': [
-            'mélange',
-            'melange',
-            'aléatoire',
-            'mode aléatoire',
-            'joue au hasard',
-            'au hasard',
-            'mixe',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'shuffle_off': {
-        'triggers': [
-            'arrête de mélanger',
-            'plus d\'aléatoire',
-            'aléatoire off',
-            'en ordre',
-            'dans l\'ordre',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'play_next': {
-        'triggers': [
-            'joue frozen ensuite',
-            'joue beatles après',
-            'suivant frozen',
-            'après joue frozen',
-            'mets frozen après',
-        ],
-        'extract': r'(?:joue|mets|suivant)\s+(.+?)\s+(?:ensuite|après)',
-        'priority': 15,
-    },
-    'add_to_queue': {
-        'triggers': [
-            'ajoute frozen',
-            'ajoute beatles',
-            'ajoute à la file',
-            'file d\'attente frozen',
-            'ajoute à la playlist',
-        ],
-        'extract': r'(?:ajoute|file)\s+(?:d\'attente\s+)?(.+?)(?:\s+(?:à la file|à la playlist))?',
-        'priority': 10,
-    },
-    'set_alarm': {
-        'triggers': [
-            'réveille-moi à 7',
-            'réveille moi à 7',
-            'alarme à 7 heures',
-            'mets une alarme',
-            'alarme pour 7',
-            'réveille-moi à 7 avec frozen',
-        ],
-        'extract': r'(?:réveille|alarme)\s+(?:moi\s+)?(?:à\s+|pour\s+)?(\d{1,2}(?::\d{2})?(?:\s*(?:h|heures?))?)',
-        'priority': 15,
-    },
-    'cancel_alarm': {
-        'triggers': [
-            'annule l\'alarme',
-            'annule alarme',
-            'enlève l\'alarme',
-            'pas d\'alarme',
-            'supprime alarme',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'check_bedtime': {
-        'triggers': [
-            'c\'est quand l\'heure du coucher',
-            'quelle est mon heure de coucher',
-            'quand je vais au lit',
-            'c\'est quand mon coucher',
-            'heure de coucher',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'check_time_limit': {
-        'triggers': [
-            'combien de temps il reste',
-            'combien de temps j\'ai',
-            'temps restant',
-            'mon temps restant',
-            'combien je peux écouter',
-        ],
-        'extract': None,
-        'priority': 10,
-    },
-    'set_bedtime': {
-        'triggers': [
-            'mets l\'heure du coucher à 21',
-            'change l\'heure du coucher',
-            'coucher à 21 heures',
-            'heure de coucher 21',
-        ],
-        'extract': r'(?:mets|change)\s+(?:l\')?heure\s+(?:du\s+)?coucher\s+(?:à\s+)?(\d{1,2}(?::\d{2})?(?:\s*(?:h|heures?))?)',
-        'priority': 15,
-    },
-}
-
-
-# ============================================================================
-# LANGUAGE REGISTRY
-# ============================================================================
-
-LANGUAGE_PATTERNS = {
-    'en': INTENT_PATTERNS_EN,
-    'fr': INTENT_PATTERNS_FR,
-}
-
-# Production intent scope: Only essential commands for kids
-# Keep it simple: play, stop, volume control
-ACTIVE_INTENTS = {
-    'play_music',
-    'stop',
-    'volume_up',
-    'volume_down',
 }
 
 
@@ -624,6 +75,15 @@ class IntentEngine:
     Maps voice commands to structured intents using language-aware fuzzy matching.
     No machine learning, no translation, no LLM required.
     """
+
+    REQUIRED_PARAMS_INTENTS = {
+        'play_next',
+        'add_to_queue',
+        'sleep_timer',
+        'set_alarm',
+        'set_bedtime',
+        'set_volume',
+    }
 
     def __init__(
         self,
@@ -641,6 +101,7 @@ class IntentEngine:
         """
         self.fuzzy_threshold = fuzzy_threshold
         self.debug = debug
+        self._sorted_patterns_cache: Dict[str, List[Tuple[str, Dict]]] = {}
 
         # Auto-detect language from config if not specified
         if language is None:
@@ -656,6 +117,7 @@ class IntentEngine:
 
         self.language = language
         self.intent_patterns = LANGUAGE_PATTERNS[language]
+        self._sorted_patterns_cache[language] = self._sort_patterns(self.intent_patterns)
 
         if debug:
             logger.setLevel(logging.DEBUG)
@@ -666,6 +128,43 @@ class IntentEngine:
             f"threshold={fuzzy_threshold}, "
             f"intents={len(self.intent_patterns)}"
         )
+
+    def _sort_patterns(self, patterns: Dict[str, Dict]) -> List[Tuple[str, Dict]]:
+        return sorted(
+            patterns.items(),
+            key=lambda x: x[1]['priority'],
+            reverse=True
+        )
+
+    def _get_sorted_patterns(self, language: str, patterns: Dict[str, Dict]) -> List[Tuple[str, Dict]]:
+        cached = self._sorted_patterns_cache.get(language)
+        if cached is not None:
+            return cached
+        sorted_patterns = self._sort_patterns(patterns)
+        self._sorted_patterns_cache[language] = sorted_patterns
+        return sorted_patterns
+
+    def _fast_classify(self, text: str, language: str) -> Optional[Intent]:
+        """
+        Fast-path classification for high-signal intents (stop/volume).
+
+        Goal: avoid collisions where play triggers overlap with polite phrasing.
+        """
+        regex = _FAST_INTENT_REGEX.get(language)
+        if not regex:
+            return None
+
+        if 'stop' in ACTIVE_INTENTS and regex['stop'].search(text):
+            return Intent(intent_type='stop', confidence=1.0, parameters={}, raw_text=text, language=language)
+
+        volume_up_match = 'volume_up' in ACTIVE_INTENTS and regex['volume_up'].search(text)
+        volume_down_match = 'volume_down' in ACTIVE_INTENTS and regex['volume_down'].search(text)
+        if volume_up_match and not volume_down_match:
+            return Intent(intent_type='volume_up', confidence=1.0, parameters={}, raw_text=text, language=language)
+        if volume_down_match and not volume_up_match:
+            return Intent(intent_type='volume_down', confidence=1.0, parameters={}, raw_text=text, language=language)
+
+        return None
 
     def classify(self, text: str, language: Optional[str] = None) -> Optional[Intent]:
         """
@@ -684,8 +183,13 @@ class IntentEngine:
 
         raw_text = text
         text = text.strip().lower()
-        text = text.replace("peux-tu", "peux tu").replace("peux-tu", "peux tu")
-        text = text.replace("mets-moi", "mets moi").replace("fais-moi", "fais moi")
+        text = (
+            text.replace("peux-tu", "peux tu")
+            .replace("pourrais-tu", "pourrais tu")
+            .replace("est-ce", "est ce")
+            .replace("mets-moi", "mets moi")
+            .replace("fais-moi", "fais moi")
+        )
         text = re.sub(r'^(?:ok|hey|salut)\s+alexa[\s,]+', '', text)
         text = re.sub(r'^alexa[\s,]+', '', text)
         logger.info(f"Intent request: raw='{raw_text}' cleaned='{text}'")
@@ -701,30 +205,32 @@ class IntentEngine:
         if self.debug:
             logger.debug(f"Classifying: '{text}' (language={active_language})")
 
-        # Try each intent pattern, sorted by priority
+        fast_intent = self._fast_classify(text, active_language)
+        if fast_intent:
+            logger.info(f"Intent answer: {fast_intent}")
+            return fast_intent
+
+        # Try each intent pattern, sorted by priority (cached)
         best_match = None
         best_score = 0
-        required_params_intents = {
-            'play_next',
-            'add_to_queue',
-            'sleep_timer',
-            'set_alarm',
-            'set_bedtime',
-        }
 
-        for intent_type, pattern in sorted(
-            patterns.items(),
-            key=lambda x: x[1]['priority'],
-            reverse=True
-        ):
+        for intent_type, pattern in self._get_sorted_patterns(active_language, patterns):
             if intent_type not in ACTIVE_INTENTS:
                 continue
             if intent_type == 'play_music':
-                if not re.search(r'\b(joue|mets|mettre|lance|écoute|écouter|entendre|veux|voudrais|aimerais|peux|fais)\b', text):
-                    continue
+                if active_language == 'fr':
+                    if not re.search(r'\b(joue|jouer|mets|mettre|lance|lancer|écoute|ecoute|écouter|ecouter|entends|entendre|veux|voudrais|aimerais|pourrais|peux|fais)\b', text):
+                        continue
+                else:
+                    if not re.search(r'(?:\bplay\b|\bput on\b|\bstart playing\b|\bi want to listen\b|\bi want to hear\b)', text):
+                        continue
             if intent_type == 'pause':
-                if re.search(r'\b(joue|mets|lance)\b', text):
-                    continue
+                if active_language == 'fr':
+                    if re.search(r'\b(joue|mets|lance)\b', text):
+                        continue
+                else:
+                    if re.search(r'(?:\bplay\b|\bput on\b|\bstart playing\b)', text):
+                        continue
             # Fuzzy match against all trigger phrases
             # Use token_set_ratio for better handling of extra words
             match_result = process.extractOne(
@@ -752,7 +258,7 @@ class IntentEngine:
                 # Check if score exceeds threshold and is better than previous best
                 if score >= self.fuzzy_threshold and score > best_score:
                     extracted_params = None
-                    if pattern['extract'] and intent_type in required_params_intents:
+                    if pattern['extract'] and intent_type in self.REQUIRED_PARAMS_INTENTS:
                         extracted_params = self._extract_parameters(
                             text,
                             pattern['extract'],
@@ -892,6 +398,37 @@ class IntentEngine:
 
             return params
 
+        # For set_volume: extract volume level (0-100)
+        if intent_type == 'set_volume':
+            try:
+                raw_value = groups[0].strip().lower()
+
+                # French number words to integers
+                french_numbers = {
+                    'cinquante': 50,
+                    'soixante': 60,
+                    'soixante-dix': 70,
+                    'soixante dix': 70,
+                    'quatre-vingts': 80,
+                    'quatre vingts': 80,
+                    'cent': 100,
+                }
+
+                # Check if it's a French number word
+                if raw_value in french_numbers:
+                    volume = french_numbers[raw_value]
+                else:
+                    # Parse as integer
+                    volume = int(raw_value)
+
+                # Clamp to 0-100 range
+                volume = max(0, min(100, volume))
+
+                return {'volume': volume}
+            except ValueError:
+                logger.warning(f"Failed to parse volume level: {groups[0]}")
+                return {}
+
         return {}
 
     def _clean_play_query(self, query: str, language: str) -> str:
@@ -902,10 +439,24 @@ class IntentEngine:
             prefixes = [
                 'tu peux jouer',
                 'tu peux mettre',
+                'est ce que tu peux jouer',
+                'est ce que tu peux mettre',
+                'pourrais tu jouer',
+                'pourrais tu mettre',
+                'tu pourrais jouer',
+                'tu pourrais mettre',
+                'tu veux bien jouer',
+                'tu veux bien mettre',
+                'je veux que tu joues',
+                'je veux que tu mettes',
+                "j'ai envie d'écouter",
+                "j'ai envie d'entendre",
                 'je veux écouter',
                 'je veux ecouter',
                 'je veux entendre',
                 'je voudrais écouter',
+                'je voudrais ecouter',
+                "j'aimerais ecouter",
                 'j\'aimerais écouter',
                 'joue',
                 'mets',
@@ -929,8 +480,21 @@ class IntentEngine:
                 query = query[len(prefix):].strip()
                 break
 
+        lower_query = query.lower()
+        if language == 'fr':
+            for filler in ("la chanson", "chanson"):
+                if lower_query.startswith(f"{filler} "):
+                    query = query[len(filler):].strip()
+                    break
+
         query = query.strip().strip(".,!?;:")
         query = re.sub(r'\s+', ' ', query)
+
+        if language != 'fr':
+            query = re.sub(r'\bplease\b$', '', query, flags=re.IGNORECASE).strip()
+            query = query.strip().strip(".,!?;:")
+            query = re.sub(r'\s+', ' ', query)
+
         return query
 
 

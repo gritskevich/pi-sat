@@ -3,38 +3,38 @@
 ## Strategy
 
 **Git-tracked (committed):**
-- `wake_word/` - Hand-crafted wake word samples (essential)
+- `wake_word/` - Hand-crafted "Alexa" samples (essential)
 - `noise/` - Noise samples
-- `stt/` - STT test samples
-- `e2e/` - End-to-end reference samples
-
-**Generated (excluded from git):**
-- `_cache_tts/` - TTS generation cache
-- `e2e_french/` - ElevenLabs E2E French tests
-- `integration/` - Integration test samples
-- `language_tests/english/` - English language tests
-- `language_tests/french/` - French language tests
-- `language_tests/french_full/` - Full French test suite
-- `language_tests/french_full_elevenlabs/` - ElevenLabs French suite
-- `synthetic/` - Synthetic test samples
-- `commands/` - Command test samples
+- `test_metadata.json` - ✅ Source of truth (FR-first) for audio-driven tests
 
 ## Regenerating Audio Samples
 
 After cloning the repo, regenerate excluded samples:
 
 ```bash
-# Generate language test audio (Piper TTS)
-python scripts/generate_language_test_audio.py
-
 # Generate E2E French tests (ElevenLabs - requires API key)
 python scripts/generate_e2e_french_tests.py
 
-# Generate music test audio
-python scripts/generate_music_test_audio.py
-
-# QA check pauses and format
+# QA check pauses and format (optional)
 python scripts/qa_stt_audio_suite.py
+```
+
+**Generated (gitignored):**
+- `e2e_french/` - ElevenLabs E2E French tests (recommended)
+- `language_tests/french_full_elevenlabs/` - Larger legacy suite (optional)
+- `_cache_tts/` - TTS cache
+
+**Refresh derived fields (duration, etc.):**
+```bash
+python scripts/refresh_audio_metadata.py
+```
+
+## Add / Mark a WAV
+
+Register a hand-made/generated WAV in the metadata registry:
+
+```bash
+python scripts/add_audio_test_case.py --suite e2e_french --group positive --file <path.wav> --full-phrase "Alexa. ..." --command "..." --intent play_music --parameters '{"query":"..."}'
 ```
 
 ## Why This Strategy?

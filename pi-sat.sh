@@ -343,6 +343,14 @@ test() {
 # Run the orchestrator
 run() {
     check_venv
+
+    # Ensure MPD is running
+    if ! pgrep -x mpd > /dev/null; then
+        log "Starting MPD..."
+        mpd ~/.mpd/mpd.conf
+        sleep 1
+    fi
+
     log "Starting Pi-Sat orchestrator..."
     exec "$PY" modules/orchestrator.py
 }
@@ -350,6 +358,14 @@ run() {
 # Run the orchestrator in debug mode
 run_debug() {
     check_venv
+
+    # Ensure MPD is running
+    if ! pgrep -x mpd > /dev/null; then
+        log "Starting MPD..."
+        mpd ~/.mpd/mpd.conf
+        sleep 1
+    fi
+
     log "Starting Pi-Sat orchestrator in debug mode..."
     exec "$PY" modules/orchestrator.py --debug
 }

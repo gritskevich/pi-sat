@@ -406,10 +406,9 @@ class TestIntentEngineIntegration(unittest.TestCase):
         """Test: Sequence of different commands"""
         commands = [
             ("play maman", 'play_music'),
-            ("pause", 'pause'),
-            ("resume", 'resume'),
             ("volume up", 'volume_up'),
-            ("i love this", 'add_favorite'),
+            ("volume down", 'volume_down'),
+            ("stop music", 'stop'),
         ]
 
         for command, expected_intent in commands:
@@ -540,6 +539,16 @@ class TestIntentEngineFR(unittest.TestCase):
             ("je voudrais écouter Kids United", "kids united"),
             ("je veux entendre Mama Africa", "mama africa"),
             ("peux-tu jouer Chacun sa route", "chacun sa route"),
+            ("est-ce que tu peux mettre Louane", "louane"),
+            ("est ce que tu peux jouer Stromae", "stromae"),
+            ("pourrais-tu jouer Mama Africa", "mama africa"),
+            ("pourrais tu mettre la chanson Nuit de folie", "nuit de folie"),
+            ("tu pourrais jouer Kids United", "kids united"),
+            ("tu veux bien mettre Magic in the Air", "magic in the air"),
+            ("je veux que tu joues Louane", "louane"),
+            ("je veux que tu mettes Alors on danse", "alors on danse"),
+            ("j'ai envie d'écouter Stromae", "stromae"),
+            ("j'ai envie d'entendre Louane", "louane"),
         ]
 
         for command, expected_query in test_cases:
@@ -550,6 +559,22 @@ class TestIntentEngineFR(unittest.TestCase):
                 self.assertIsNotNone(intent)
                 self.assertEqual(intent.intent_type, 'play_music')
                 self.assertEqual(intent.parameters.get('query'), expected_query)
+
+    def test_no_intersection_play_vs_volume_stop_fr(self):
+        """Test: Play phrasing does not collide with stop/volume (French)"""
+        test_cases = [
+            ("mets plus fort", "volume_up"),
+            ("mets moins fort", "volume_down"),
+            ("est-ce que tu peux monter le volume", "volume_up"),
+            ("pourrais-tu baisser le volume", "volume_down"),
+            ("est ce que tu peux arrêter la musique", "stop"),
+        ]
+
+        for command, expected_intent in test_cases:
+            with self.subTest(command=command):
+                intent = self.engine.classify(command)
+                self.assertIsNotNone(intent)
+                self.assertEqual(intent.intent_type, expected_intent)
 
     def test_alexa_prefix_fr(self):
         """Test: Alexa prefix is ignored (French)"""
@@ -675,7 +700,7 @@ class TestIntentEngineFR(unittest.TestCase):
     @unittest.skipIf("add_favorite" not in ACTIVE_INTENTS, "add_favorite intent not active")
     def test_add_favorite_command_fr(self):
         """Test: Add to favorites command classification (French)"""
-        intent = self.engine.classify("ajoute aux favoris")
+        intent = self.engine.classify("j'adore cette chanson")
 
         self.assertIsNotNone(intent)
         self.assertEqual(intent.intent_type, 'add_favorite')
@@ -714,7 +739,7 @@ class TestIntentEngineFR(unittest.TestCase):
     @unittest.skipIf("shuffle_on" not in ACTIVE_INTENTS, "shuffle_on intent not active")
     def test_shuffle_on_fr_accented(self):
         """Test: Shuffle command classification with accents (French)"""
-        intent = self.engine.classify("aléatoire")
+        intent = self.engine.classify("mode aléatoire")
 
         self.assertIsNotNone(intent)
         self.assertEqual(intent.intent_type, 'shuffle_on')

@@ -126,8 +126,27 @@ class MPDController:
                 self.client.connect(self.host, self.port)
                 self._connected = True
                 logger.info(f"Connected to MPD at {self.host}:{self.port}")
-                if config.DEFAULT_SHUFFLE_MODE:
-                    self.set_shuffle(True)
+                # Apply default playback modes (does not alter the current song/volume)
+                self.set_shuffle(bool(getattr(config, "DEFAULT_SHUFFLE_MODE", False)))
+                default_repeat = getattr(config, "DEFAULT_REPEAT_MODE", None)
+                if default_repeat:
+                    self.set_repeat(default_repeat)
+
+                # Load music catalog from MPD database
+                if self._music_library.is_empty():
+                    try:
+                        count = self._music_library.load_from_mpd(self.client)
+                        logger.debug(f"Loaded {count} songs from MPD database")
+                    except Exception as e:
+                        logger.warning(f"Failed to load music catalog: {e}")
+
+                # Ensure we have a real queue for continuous shuffle mode.
+                # Important: only appends when the queue is empty/tiny, so restarts won't disrupt playback.
+                if getattr(config, "DEFAULT_SHUFFLE_MODE", False):
+                    try:
+                        self._ensure_queue_seeded(min_songs=2)
+                    except Exception as e:
+                        logger.warning(f"Failed to seed shuffle queue: {e}")
             return True
 
         except Exception as e:
@@ -165,6 +184,80 @@ class MPDController:
         except Exception as e:
             logger.error(f"MPD operation failed: {e}")
             raise
+
+    def _ensure_queue_seeded(self, min_songs: int = 2) -> bool:
+        """
+        Ensure MPD has a non-trivial queue to support continuous shuffle play.
+
+        - Does not clear or restart playback.
+        - Only adds songs when playlist is empty/tiny (e.g., after "play <song>" on old versions).
+        """
+        try:
+            status = self.client.status()
+            playlist_len = int(status.get('playlistlength', 0) or 0)
+        except Exception:
+            playlist_len = 0
+
+        if playlist_len >= min_songs:
+            return True
+
+        # Ensure we have a catalog to seed from
+        if self._music_library.is_empty():
+            try:
+                self._music_library.load_from_mpd(self.client)
+            except Exception as e:
+                logger.warning(f"Failed to load catalog for seeding: {e}")
+
+        all_songs = self._music_library.get_all_songs()
+        if not all_songs:
+            return False
+
+        # Avoid duplicates when the playlist is tiny (0/1 entries)
+        existing_files = set()
+        if playlist_len > 0:
+            try:
+                for item in self.client.playlistinfo():
+                    file_path = item.get('file')
+                    if file_path:
+                        existing_files.add(file_path)
+            except Exception:
+                pass
+
+        songs_to_add = [p for p in all_songs if p not in existing_files]
+        if not songs_to_add:
+            return True
+
+        try:
+            if hasattr(self.client, "command_list_ok_begin"):
+                self.client.command_list_ok_begin()
+                try:
+                    for path in songs_to_add:
+                        self.client.add(path)
+                finally:
+                    # Ensure command list is always closed to keep the connection usable.
+                    self.client.command_list_end()
+            else:
+                for path in songs_to_add:
+                    self.client.add(path)
+        except Exception as e:
+            logger.error(f"Failed to seed queue: {e}")
+            return False
+
+        logger.info(f"Seeded MPD queue: +{len(songs_to_add)} songs (total catalog={len(all_songs)})")
+        return True
+
+    def _find_playlist_song_id(self, file_path: str) -> Optional[int]:
+        """Find a song id in the current playlist by exact file path."""
+        try:
+            matches = self.client.playlistfind('file', file_path)
+            if not matches:
+                return None
+            song_id = matches[0].get('id')
+            if song_id is None:
+                return None
+            return int(song_id)
+        except Exception:
+            return None
 
     def get_status(self) -> Dict:
         """
@@ -219,6 +312,11 @@ class MPDController:
         with self._ensure_connection():
             # If no query, just resume current song
             if not query:
+                # If queue is empty (fresh MPD), seed so "play" actually starts music.
+                try:
+                    self._ensure_queue_seeded(min_songs=1)
+                except Exception:
+                    pass
                 self.client.play()
                 status = self.get_status()
                 return (True, f"Playing {status['song']}", None)
@@ -234,10 +332,26 @@ class MPDController:
             matched_file, confidence = search_result
             logger.info(f"Song detection answer: '{matched_file}' ({confidence:.2%})")
 
-            # Clear playlist and add matched song
-            self.client.clear()
-            self.client.add(matched_file)
-            self.client.play()
+            # Keep a real shuffle queue so the next track is random (continuous shuffle by default).
+            try:
+                self._ensure_queue_seeded(min_songs=2)
+            except Exception:
+                pass
+
+            song_id = self._find_playlist_song_id(matched_file)
+            if song_id is None:
+                try:
+                    song_id = int(self.client.addid(matched_file))
+                except Exception:
+                    # Fallback for older MPD: add then find
+                    self.client.add(matched_file)
+                    song_id = self._find_playlist_song_id(matched_file)
+
+            if song_id is None:
+                logger.error("Failed to queue requested song in MPD")
+                return (False, "Could not play that song", confidence)
+
+            self.client.playid(song_id)
 
             logger.info(f"Playing: {matched_file} (confidence: {confidence:.2%})")
             return (True, f"Playing {query}", confidence)
@@ -284,24 +398,24 @@ class MPDController:
             Tuple of (success, message)
         """
         with self._ensure_connection():
-            # Check current position and playlist length
-            status = self.client.status()
-            current_pos_str = status.get('song', '0')
-            playlist_length_str = status.get('playlistlength', '0')
-            
+            # Ensure a real queue so "next" works after single-song requests.
             try:
-                current_pos = int(current_pos_str)
-                playlist_length = int(playlist_length_str)
-            except (ValueError, TypeError):
-                current_pos = 0
-                playlist_length = 0
-            
-            # If at end of playlist, can't go next
-            if playlist_length > 0 and current_pos >= playlist_length - 1:
-                return (False, "Already at end of playlist")
-            
+                status = self.client.status()
+                playlist_length = int(status.get('playlistlength', 0) or 0)
+            except Exception:
+                playlist_length = None
+
+            if playlist_length is not None and playlist_length <= 1:
+                try:
+                    self._ensure_queue_seeded(min_songs=2)
+                except Exception:
+                    pass
+
             try:
-                self.client.next()
+                if playlist_length == 0:
+                    self.client.play()
+                else:
+                    self.client.next()
             except Exception as e:
                 logger.error(f"MPD next() failed: {e}")
                 return (False, f"Could not skip to next: {e}")

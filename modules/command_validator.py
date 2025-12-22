@@ -96,6 +96,9 @@ class CommandValidator:
             # Volume validation
             'volume_up': "J'augmente le volume",
             'volume_down': "Je baisse le volume",
+            'set_volume': "Je mets le volume à {volume}%",
+            'volume_too_high': "Le volume maximum est {max_volume}%, je mets à {volume}%",
+            'invalid_volume': "Désolé, je n'ai pas compris le niveau de volume",
 
             # Favorites validation
             'adding_favorite': "D'accord, j'ajoute aux favoris",
@@ -139,6 +142,9 @@ class CommandValidator:
             'previous_song': "Previous song",
             'volume_up': "Volume up",
             'volume_down': "Volume down",
+            'set_volume': "Setting volume to {volume}%",
+            'volume_too_high': "Maximum volume is {max_volume}%, setting to {volume}%",
+            'invalid_volume': "Sorry, I didn't understand the volume level",
             'adding_favorite': "Okay, adding to favorites",
             'playing_favorites': "Playing your favorites",
             'sleep_timer': "Okay, I'll stop in {minutes} minutes",
@@ -190,6 +196,10 @@ class CommandValidator:
             # Volume controls - always valid
             elif intent_type in ['volume_up', 'volume_down']:
                 return self._validate_volume(intent_type)
+
+            # Set volume - validate level
+            elif intent_type == 'set_volume':
+                return self._validate_set_volume(params)
 
             # Favorites
             elif intent_type in ['add_favorite', 'play_favorites']:
@@ -250,15 +260,15 @@ class CommandValidator:
             )
 
         # Search for song/artist in catalog
-        matches = self.music_library.search(query)
+        result = self.music_library.search(query)
 
-        if not matches:
+        if not result:
             return ValidationResult.invalid(
                 message=self._get_message('no_music_found', query=query)
             )
 
-        # Got matches - use best match
-        best_match, confidence = matches[0]
+        # Got match - MusicLibrary.search returns (file_path, confidence)
+        best_match, confidence = result
 
         # High confidence - confirm what we found
         if confidence >= 0.8:
@@ -294,6 +304,36 @@ class CommandValidator:
         return ValidationResult.valid(
             message=self._get_message(intent_type),
             params={}
+        )
+
+    def _validate_set_volume(self, params: Dict[str, Any]) -> ValidationResult:
+        """Validate set volume command with safety limits."""
+        import config
+
+        volume = params.get('volume')
+
+        if volume is None or not isinstance(volume, (int, float)):
+            return ValidationResult.invalid(
+                message=self._get_message('invalid_volume')
+            )
+
+        # Ensure volume is integer
+        volume = int(volume)
+
+        # Check if volume exceeds safety limit
+        max_volume = getattr(config, 'MAX_VOLUME', 100)
+        if volume > max_volume:
+            return ValidationResult.valid(
+                message=self._get_message('volume_too_high', max_volume=max_volume, volume=max_volume),
+                params={'volume': max_volume},
+                confidence=1.0
+            )
+
+        # Valid volume
+        return ValidationResult.valid(
+            message=self._get_message('set_volume', volume=volume),
+            params={'volume': volume},
+            confidence=1.0
         )
 
     def _validate_favorites(self, intent_type: str) -> ValidationResult:

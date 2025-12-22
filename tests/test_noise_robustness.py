@@ -1,9 +1,9 @@
 import unittest
 import os
-import soundfile as sf
 import numpy as np
 from modules.speech_recorder import SpeechRecorder
 from tests.test_utils import process_audio_file
+from tests.test_utils import read_wav_mono_int16
 import config
 
 try:
@@ -40,12 +40,8 @@ class TestNoiseRobustness(unittest.TestCase):
         
         if not os.path.exists(noise_file):
             self.skipTest("Noise file not found")
-        
-        audio, rate = sf.read(noise_file)
-        if len(audio.shape) > 1:
-            audio = audio[:, 0]
-        
-        audio = (audio * 32767).astype(np.int16)
+
+        audio, rate = read_wav_mono_int16(noise_file)
         
         print(f"\n🔍 Analyzing noise file: noise.wav")
         
@@ -105,12 +101,8 @@ class TestNoiseRobustness(unittest.TestCase):
         
         if not os.path.exists(noise_file):
             self.skipTest("Noise file not found")
-        
-        audio, rate = sf.read(noise_file)
-        if len(audio.shape) > 1:
-            audio = audio[:, 0]
-        
-        audio = (audio * 32767).astype(np.int16)
+
+        audio, rate = read_wav_mono_int16(noise_file)
         result = self.recorder.process_audio_chunks(audio, rate)
         
         # Noise should result in some recording (depending on VAD behavior)

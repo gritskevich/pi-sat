@@ -11,6 +11,7 @@ import subprocess
 import logging
 from typing import Optional, Tuple
 from modules.logging_utils import setup_logger
+import config
 
 logger = setup_logger(__name__)
 
@@ -142,25 +143,20 @@ class VolumeManager:
     def set_tts_volume(self, volume: int) -> bool:
         """
         Set TTS volume (0-100).
-        
-        Note: TTS uses ALSA Master volume, which affects all audio.
-        For true independent control, consider using a separate ALSA mixer.
-        
+
+        DEPRECATED: TTS now uses aplay --volume for independent control.
+        This method no longer modifies ALSA Master to avoid affecting music volume.
+
         Args:
             volume: Volume percentage (0-100)
-            
+
         Returns:
-            True if successful
+            True (always succeeds, stores value only)
         """
         volume = max(0, min(100, volume))
-        
-        if self._alsa_available:
-            if self._set_alsa_volume(volume):
-                self.tts_volume = volume
-                logger.debug(f"TTS volume set: {volume}%")
-                return True
-        
-        return False
+        self.tts_volume = volume
+        logger.debug(f"TTS volume stored (not applied to Master): {volume}%")
+        return True
     
     def duck_music_volume(self, duck_to: int = 20) -> bool:
         """
@@ -262,11 +258,21 @@ class VolumeManager:
         Returns:
             Tuple of (success, message)
         """
+        # If we're ducking during a voice command, adjust the *restore target* volume
+        # instead of the currently-ducked output volume.
+        if self._ducking_active and self._music_original_volume is not None:
+            max_vol = min(100, getattr(config, "MAX_VOLUME", 100))
+            new_volume = min(max_vol, self._music_original_volume + amount)
+            self._music_original_volume = new_volume
+            self.music_volume = new_volume
+            return (True, f"Music volume {new_volume}%")
+
         current = self.get_music_volume()
         if current is None:
             return (False, "Volume control unavailable")
         
-        new_volume = min(100, current + amount)
+        max_vol = min(100, getattr(config, "MAX_VOLUME", 100))
+        new_volume = min(max_vol, current + amount)
         success = self.set_music_volume(new_volume)
         
         if success:
@@ -283,6 +289,14 @@ class VolumeManager:
         Returns:
             Tuple of (success, message)
         """
+        # If we're ducking during a voice command, adjust the *restore target* volume
+        # instead of the currently-ducked output volume.
+        if self._ducking_active and self._music_original_volume is not None:
+            new_volume = max(0, self._music_original_volume - amount)
+            self._music_original_volume = new_volume
+            self.music_volume = new_volume
+            return (True, f"Music volume {new_volume}%")
+
         current = self.get_music_volume()
         if current is None:
             return (False, "Volume control unavailable")
@@ -293,5 +307,4 @@ class VolumeManager:
         if success:
             return (True, f"Music volume {new_volume}%")
         return (False, "Failed to decrease volume")
-
 

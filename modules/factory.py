@@ -69,18 +69,23 @@ def create_mpd_controller(
         debug: Enable debug logging
 
     Returns:
-        Configured MPDController instance
+        Configured MPDController instance (connected to MPD)
     """
     host = host or config.MPD_HOST
     port = port or config.MPD_PORT
     music_library = music_library or config.MUSIC_LIBRARY
 
-    return MPDController(
+    mpd = MPDController(
         host=host,
         port=port,
         music_library=music_library,
         debug=debug
     )
+
+    # Connect to MPD and load music catalog
+    mpd.connect()
+
+    return mpd
 
 
 def create_volume_manager(

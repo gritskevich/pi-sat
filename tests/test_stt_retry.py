@@ -18,12 +18,19 @@ class TestSTTRetry(PiSatTestBase):
     
     def setUp(self):
         super().setUp()
+        # Never start real Hailo threads in unit tests
+        self._load_model_patcher = patch.object(HailoSTT, "_load_model", return_value=None)
+        self._load_model_patcher.start()
         # Reset singleton for clean tests
         HailoSTT._instance = None
         HailoSTT._pipeline = None
         HailoSTT._initialized = False
     
     def tearDown(self):
+        try:
+            self._load_model_patcher.stop()
+        except Exception:
+            pass
         # Clean up singleton
         if HailoSTT._instance:
             try:
@@ -156,5 +163,4 @@ class TestSTTRetry(PiSatTestBase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-
 

@@ -344,9 +344,18 @@ class TestOrchestratorIntentIntegrationReal(unittest.TestCase):
     """Integration tests with real components (no mocks)"""
 
     def setUp(self):
-        """Set up real orchestrator for integration testing"""
-        # Use real orchestrator but with debug mode
-        self.orchestrator = Orchestrator(verbose=False, debug=True)
+        """Set up orchestrator with minimal injected CommandProcessor (new architecture)."""
+        self.command_processor = Mock()
+        self.command_processor.intent_engine = IntentEngine(fuzzy_threshold=50, language="fr")
+        self.command_processor.stt = Mock()
+        self.command_processor.stt.cleanup = Mock()
+
+        self.orchestrator = Orchestrator(
+            command_processor=self.command_processor,
+            wake_word_listener=Mock(),
+            verbose=False,
+            debug=True,
+        )
 
     def tearDown(self):
         """Clean up"""
@@ -354,18 +363,23 @@ class TestOrchestratorIntentIntegrationReal(unittest.TestCase):
             self.orchestrator.stop()
 
     def test_intent_engine_initialized(self):
-        """Test: Intent engine is initialized in orchestrator"""
-        # This will fail until we add intent_engine to orchestrator
-        self.assertTrue(hasattr(self.orchestrator, 'intent_engine'))
-        self.assertIsInstance(self.orchestrator.intent_engine, IntentEngine)
+        """Test: CommandProcessor carries IntentEngine (new architecture)."""
+        self.assertTrue(hasattr(self.orchestrator, 'command_processor'))
+        self.assertTrue(hasattr(self.orchestrator.command_processor, 'intent_engine'))
+        self.assertIsInstance(self.orchestrator.command_processor.intent_engine, IntentEngine)
 
     def test_mpd_controller_available(self):
         """Test: MPD controller is available if provided"""
         # Orchestrator should accept mpd_controller parameter
         mock_mpd = Mock()
-        orchestrator = Orchestrator(verbose=False, mpd_controller=mock_mpd)
-        # Should store or use mpd_controller
-        orchestrator.stop()
+        dummy_processor = Mock()
+        dummy_processor.stt = Mock()
+        dummy_processor.stt.cleanup = Mock()
+
+        with patch("modules.factory.create_command_processor", return_value=dummy_processor):
+            orchestrator = Orchestrator(verbose=False, mpd_controller=mock_mpd)
+            self.assertIs(orchestrator.command_processor, dummy_processor)
+            orchestrator.stop()
 
 
 if __name__ == '__main__':

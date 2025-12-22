@@ -40,6 +40,9 @@ class TestSpeechRecorderAdaptive(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.recorder = SpeechRecorder(debug=False)
+        # Make tests deterministic: energy-based detection drives speech/non-speech,
+        # so force the WebRTC VAD leg to "True".
+        self.recorder.vad.is_speech = lambda frame_bytes, sample_rate: True  # noqa: ARG005
 
     def generate_audio_chunk(self, duration_ms=30, amplitude=0, sample_rate=48000):
         """
@@ -100,7 +103,7 @@ class TestSpeechRecorderAdaptive(unittest.TestCase):
 
         # Silence - end
         for _ in range(40):
-            chunks.append(self.generate_audio_chunk(amplitude=50))
+            chunks.append(self.generate_audio_chunk(amplitude=0))
 
         stream = MockStream(chunks)
         audio_data = self.recorder.record_from_stream(stream, input_rate=48000, max_duration=5.0)
@@ -122,7 +125,7 @@ class TestSpeechRecorderAdaptive(unittest.TestCase):
 
         # Long silence (should trigger end)
         for _ in range(50):
-            chunks.append(self.generate_audio_chunk(amplitude=100))
+            chunks.append(self.generate_audio_chunk(amplitude=0))
 
         stream = MockStream(chunks)
 
@@ -166,7 +169,7 @@ class TestSpeechRecorderAdaptive(unittest.TestCase):
 
         # Silence
         for _ in range(50):
-            chunks.append(self.generate_audio_chunk(amplitude=100))
+            chunks.append(self.generate_audio_chunk(amplitude=0))
 
         stream = MockStream(chunks)
         audio_data = self.recorder.record_from_stream(stream, input_rate=48000, max_duration=5.0)
@@ -208,7 +211,7 @@ class TestSpeechRecorderAdaptive(unittest.TestCase):
             for _ in range(20):
                 chunks.append(self.generate_audio_chunk(amplitude=800))
             for _ in range(20):
-                chunks.append(self.generate_audio_chunk(amplitude=100))
+                chunks.append(self.generate_audio_chunk(amplitude=0))
 
             stream = MockStream(chunks)
             audio_data = self.recorder.record_from_stream(stream, input_rate=48000)
@@ -220,6 +223,31 @@ class TestSpeechRecorderAdaptive(unittest.TestCase):
             # Restore original values
             config.VAD_SPEECH_MULTIPLIER = original_multiplier
             config.VAD_SILENCE_DURATION = original_silence
+
+    def test_returns_16k_pcm(self):
+        """record_from_stream() returns raw 16kHz int16 PCM bytes (no WAV header)."""
+        chunks = []
+
+        # Calibration
+        for _ in range(10):
+            chunks.append(self.generate_audio_chunk(amplitude=80))
+
+        # Speech
+        for _ in range(20):
+            chunks.append(self.generate_audio_chunk(amplitude=800))
+
+        # Silence
+        for _ in range(40):
+            chunks.append(self.generate_audio_chunk(amplitude=0))
+
+        stream = MockStream(chunks)
+        audio_data = self.recorder.record_from_stream(stream, input_rate=48000, max_duration=5.0)
+
+        self.assertIsInstance(audio_data, bytes)
+        self.assertEqual(len(audio_data) % 2, 0)  # int16 PCM
+
+        frame_samples = int(16000 * (config.FRAME_DURATION / 1000.0))
+        self.assertEqual(len(audio_data) % (frame_samples * 2), 0)
 
 
 if __name__ == '__main__':

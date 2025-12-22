@@ -203,10 +203,10 @@ class TestCommandProcessor(unittest.TestCase):
             raw_text='louder'
         )
 
-        self.mock_mpd.volume_up.return_value = (True, "Volume 70%")
+        self.mock_volume_manager.music_volume_up.return_value = (True, "Music volume 70%")
         response = self.processor._execute_intent(intent)
 
-        self.mock_mpd.volume_up.assert_called_once()
+        self.mock_volume_manager.music_volume_up.assert_called_once()
         self.assertIsNotNone(response)
 
     def test_execute_intent_add_favorite(self):

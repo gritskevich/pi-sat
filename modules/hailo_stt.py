@@ -3,7 +3,7 @@ import tempfile
 import os
 import sys
 import time
-import soundfile as sf
+import wave
 import config
 from .logging_utils import setup_logger, log_info, log_success, log_warning, log_error, log_debug, log_stt
 from .retry_utils import retry_transient_errors
@@ -272,6 +272,22 @@ class HailoSTT:
         return enc, dec
 
     def _write_temp_wav(self, audio_data):
+        def _to_int16(samples):
+            arr = np.asarray(samples)
+            if arr.dtype == np.int16:
+                return arr
+            if np.issubdtype(arr.dtype, np.floating):
+                arr = np.clip(arr, -1.0, 1.0)
+                return (arr * 32767.0).astype(np.int16)
+            return arr.astype(np.int16)
+
+        def _write_wav_int16(path: str, samples_i16: np.ndarray, rate: int):
+            with wave.open(path, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(int(rate))
+                wf.writeframes(samples_i16.astype(np.int16, copy=False).tobytes())
+
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
             tmp_path = tmp_file.name
             if isinstance(audio_data, bytes):
@@ -281,10 +297,10 @@ class HailoSTT:
                     tmp_file.flush()
                 else:
                     audio_array = np.frombuffer(audio_data, dtype=np.int16)
-                    sf.write(tmp_path, audio_array, config.SAMPLE_RATE)
+                    _write_wav_int16(tmp_path, audio_array, config.SAMPLE_RATE)
             else:
                 # Assume numpy array of PCM samples
-                sf.write(tmp_path, audio_data, config.SAMPLE_RATE)
+                _write_wav_int16(tmp_path, _to_int16(audio_data), config.SAMPLE_RATE)
         return tmp_path
 
     def _get_chunk_length(self):

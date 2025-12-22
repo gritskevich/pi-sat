@@ -23,6 +23,16 @@ class Intent:
     raw_text: str  # Original transcribed text
     language: str = 'fr'  # Language of the intent (added for DDD compliance)
 
+    def __repr__(self) -> str:
+        params = ""
+        if self.parameters:
+            parts = [f"{k}={v}" for k, v in self.parameters.items()]
+            params = ", " + ", ".join(parts)
+        return (
+            f"Intent(intent_type={self.intent_type!r}, confidence={self.confidence:.2f}"
+            f"{params}, raw_text={self.raw_text!r}, language={self.language!r})"
+        )
+
 
 @dataclass
 class ValidationResult:

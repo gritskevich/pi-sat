@@ -1,25 +1,26 @@
-import types
+from unittest.mock import Mock
+
+import config
 
 
-def test_play_wake_sound_called(monkeypatch):
-    import modules.orchestrator as orch
-    import modules.audio_player as audio_player
+def test_orchestrator_delegates_with_skip_seconds():
+    """Orchestrator should pass WAKE_SOUND_SKIP_SECONDS into command processing."""
+    from modules.orchestrator import Orchestrator
 
-    called = {"count": 0}
+    command_processor = Mock()
+    orchestrator = Orchestrator(
+        command_processor=command_processor,
+        wake_word_listener=Mock(),
+        verbose=False,
+        debug=True,
+    )
 
-    def fake_play():
-        called["count"] += 1
+    stream = Mock()
+    orchestrator._on_wake_word_detected(stream=stream, input_rate=48000)
 
-    monkeypatch.setattr(audio_player, "play_wake_sound", fake_play)
-
-    o = orch.Orchestrator(debug=True)
-
-    # prevent real processing
-    monkeypatch.setattr(o, "_process_command", lambda: None)
-
-    # call the internal handler directly to avoid threading/audio
-    o._on_wake_word_detected()
-
-    assert called["count"] == 1
-
+    command_processor.process_command.assert_called_once_with(
+        stream=stream,
+        input_rate=48000,
+        skip_initial_seconds=config.WAKE_SOUND_SKIP_SECONDS,
+    )
 

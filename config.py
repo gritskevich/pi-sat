@@ -13,13 +13,13 @@ CHANNELS = 1
 RATE = 48000
 SAMPLE_RATE = 16000
 INPUT_DEVICE_NAME = None  # use system default input device
-OUTPUT_ALSA_DEVICE = "default"     # ALSA device for speaker (aplay -D) - use system default
+OUTPUT_ALSA_DEVICE = os.getenv('OUTPUT_ALSA_DEVICE', os.getenv('PIPER_OUTPUT_DEVICE', 'default'))  # ALSA device for beep/audio_player (aplay -D)
 PLAY_WAKE_SOUND = True
 # Wake sound options:
-#   beep-instant.wav = Ultra-short beep (50ms) - use with WAKE_SOUND_SKIP=0.0 (RECOMMENDED)
-#   beep-short.wav = Short beep (100ms) - use with WAKE_SOUND_SKIP=0.0
+#   beep-short.wav = Short beep (100ms) - use with WAKE_SOUND_SKIP=0.0 (DEFAULT)
+#   beep-instant.wav = Ultra-short beep (50ms) - use with WAKE_SOUND_SKIP=0.0 (fastest)
 #   archive/wakesound.wav = Original sound (638ms) - use with WAKE_SOUND_SKIP=0.7 (legacy)
-WAKE_SOUND_PATH = os.getenv('WAKE_SOUND_PATH', f'{PROJECT_ROOT}/resources/beep-instant.wav')
+WAKE_SOUND_PATH = os.getenv('WAKE_SOUND_PATH', f'{PROJECT_ROOT}/resources/beep-short.wav')
 WAKE_SOUND_SKIP_SECONDS = float(os.getenv('WAKE_SOUND_SKIP', '0.0'))  # Seconds to skip after wake sound
                                                                         # 0.0 = instant recording (beep plays while recording)
                                                                         # 0.1 = skip short beep (cleaner audio)
@@ -30,6 +30,7 @@ WAKE_WORD_MODELS = ['alexa_v0.1']
 INFERENCE_FRAMEWORK = 'tflite'  # tflite (faster on Linux) or onnx (broader compatibility)
 THRESHOLD = 0.5  # Detection threshold (0-1). Lower = more sensitive, higher = fewer false positives
 LOW_CONFIDENCE_THRESHOLD = 0.1  # Debug threshold for logging low-confidence detections
+WAKE_WORD_COOLDOWN = float(os.getenv('WAKE_WORD_COOLDOWN', '3.0'))  # Seconds to ignore new activations after one fires
 
 # OpenWakeWord optimizations (reduce false positives)
 VAD_THRESHOLD = float(os.getenv('VAD_THRESHOLD', '0.6'))  # Voice Activity Detection threshold (0-1)
@@ -62,7 +63,7 @@ STT_RETRY_BACKOFF = float(os.getenv('STT_RETRY_BACKOFF', '2.0'))  # Exponential 
 # MPD (Music Player Daemon) settings
 MPD_HOST = os.getenv('MPD_HOST', 'localhost')
 MPD_PORT = int(os.getenv('MPD_PORT', '6600'))
-MUSIC_LIBRARY = os.getenv('PISAT_MUSIC_DIR', os.path.expanduser('~/Music/pisat'))
+MUSIC_LIBRARY = os.getenv('PISAT_MUSIC_DIR', os.path.expanduser('~/Music'))
 
 # Piper TTS settings
 PIPER_MODEL_PATH = os.getenv('PIPER_MODEL',
@@ -91,20 +92,21 @@ FUZZY_USE_LEVENSHTEIN = os.getenv('FUZZY_USE_LEVENSHTEIN', 'true').lower() == 't
 
 # Volume Control settings
 VOLUME_STEP = int(os.getenv('VOLUME_STEP', '10'))  # Percentage (0-100) for volume up/down commands
-VOLUME_DUCK_LEVEL = int(os.getenv('VOLUME_DUCK_LEVEL', '20'))  # Duck music to 20% when listening for voice
+VOLUME_DUCK_LEVEL = int(os.getenv('VOLUME_DUCK_LEVEL', '5'))  # Duck music to X% while listening for voice (0% = mute)
 VOLUME_FADE_DURATION = float(os.getenv('VOLUME_FADE_DURATION', '30.0'))  # seconds for sleep timer fade
 TTS_VOLUME = int(os.getenv('TTS_VOLUME', '80'))  # TTS volume (0-100) - separate from music volume
+BEEP_VOLUME = int(os.getenv('BEEP_VOLUME', '40'))  # Wake sound volume (0-100) - independent of music/TTS
 
 # Kid Safety & Parental Control settings
 MAX_VOLUME = int(os.getenv('MAX_VOLUME', '80'))  # Maximum allowed volume (0-100) for kid safety
 BEDTIME_ENABLED = os.getenv('BEDTIME_ENABLED', 'true').lower() == 'true'
-BEDTIME_START = os.getenv('BEDTIME_START', '21:00')  # Quiet time start (24h format: HH:MM)
-BEDTIME_END = os.getenv('BEDTIME_END', '07:00')  # Quiet time end (24h format: HH:MM)
+BEDTIME_START = os.getenv('BEDTIME_START', '20:00')  # Quiet time start (24h format: HH:MM) - default 8pm
+BEDTIME_END = os.getenv('BEDTIME_END', '08:00')  # Quiet time end (24h format: HH:MM) - default 8am
 BEDTIME_WARNING_MINUTES = int(os.getenv('BEDTIME_WARNING_MINUTES', '10'))  # Warn X minutes before bedtime
 
 # Activity Time Limits
-DAILY_TIME_LIMIT_ENABLED = os.getenv('DAILY_TIME_LIMIT_ENABLED', 'false').lower() == 'true'
-DAILY_TIME_LIMIT_MINUTES = int(os.getenv('DAILY_TIME_LIMIT_MINUTES', '120'))  # Max minutes per day
+DAILY_TIME_LIMIT_ENABLED = os.getenv('DAILY_TIME_LIMIT_ENABLED', 'true').lower() == 'true'  # Enabled by default
+DAILY_TIME_LIMIT_MINUTES = int(os.getenv('DAILY_TIME_LIMIT_MINUTES', '60'))  # Max 1 hour per day (default)
 TIME_LIMIT_WARNING_MINUTES = int(os.getenv('TIME_LIMIT_WARNING_MINUTES', '10'))  # Warn when X minutes left
 
 # Morning Alarm settings
@@ -114,5 +116,7 @@ ALARM_START_VOLUME = int(os.getenv('ALARM_START_VOLUME', '10'))  # Start gentle 
 ALARM_END_VOLUME = int(os.getenv('ALARM_END_VOLUME', '50'))  # End gentle wake-up at 50%
 
 # Playback Mode defaults
-DEFAULT_REPEAT_MODE = os.getenv('DEFAULT_REPEAT_MODE', 'off')  # off, single, playlist
+# Continuous shuffle by default: repeat playlist + random mode.
+# Override in your environment if you want different behavior.
+DEFAULT_REPEAT_MODE = os.getenv('DEFAULT_REPEAT_MODE', 'playlist')  # off, single, playlist
 DEFAULT_SHUFFLE_MODE = os.getenv('DEFAULT_SHUFFLE_MODE', 'true').lower() == 'true'

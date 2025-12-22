@@ -8,20 +8,22 @@ End-to-end tests validating: Wake Word Detection → STT → Intent Classificati
 tests/audio_samples/e2e_french/
 ├── positive/              # 10 tests with "Alexa" wake word
 │   ├── 01_play_music.wav
-│   ├── 02_pause.wav
-│   ├── 03_volume_up.wav
-│   ├── 04_next.wav
-│   ├── 05_add_favorite.wav
-│   ├── 06_sleep_timer.wav
-│   ├── 07_play_favorites.wav
-│   ├── 08_shuffle_on.wav
-│   ├── 09_set_alarm.wav
+│   ├── 02_play_music.wav
+│   ├── 03_play_music.wav
+│   ├── 04_play_music.wav
+│   ├── 05_play_music.wav
+│   ├── 06_play_music.wav
+│   ├── 07_play_music.wav
+│   ├── 08_play_music.wav
+│   ├── 09_play_music.wav
 │   └── 10_play_music.wav
 ├── negative/              # 3 tests WITHOUT wake word
 │   ├── 01_no_wake_word.wav
 │   ├── 02_no_wake_word.wav
 │   └── 03_no_wake_word.wav
-└── manifest.json          # Test metadata
+└── manifest.json          # Minimal metadata (generated, gitignored)
+
+tests/audio_samples/test_metadata.json  # Full metadata (tracked)
 ```
 
 ## Test Phrases
@@ -34,20 +36,20 @@ tests/audio_samples/e2e_french/
 
 ### Positive (with "Alexa")
 1. "Alexa" + [0.3s] + "Je veux écouter maman" → `play_music`
-2. "Alexa" + [0.3s] + "Tu peux jouer Louane" → `play_music`
-3. "Alexa" + [0.3s] + "Tu peux jouer Grace Kelly" → `play_music`
-4. "Alexa" + [0.3s] + "Tu peux mettre Kids United" → `play_music`
-5. "Alexa" + [0.3s] + "Pause" → `pause`
-6. "Alexa" + [0.3s] + "Suivant" → `next`
-7. "Alexa" + [0.3s] + "Plus fort" → `volume_up`
-8. "Alexa" + [0.3s] + "J'adore ça" → `add_favorite`
-9. "Alexa" + [0.3s] + "Joue mes favoris" → `play_favorites`
-10. "Alexa" + [0.3s] + "Mélange" → `shuffle_on`
+2. "Alexa" + [0.3s] + "Je veux écouter Louane" → `play_music`
+3. "Alexa" + [0.3s] + "Je veux écouter Stromae" → `play_music`
+4. "Alexa" + [0.3s] + "Je veux écouter On écrit sur les murs" → `play_music`
+5. "Alexa" + [0.3s] + "Je veux écouter Alors on danse" → `play_music`
+6. "Alexa" + [0.3s] + "Tu peux jouer maman" → `play_music`
+7. "Alexa" + [0.3s] + "Tu peux jouer Louane" → `play_music`
+8. "Alexa" + [0.3s] + "Tu peux jouer Stromae" → `play_music`
+9. "Alexa" + [0.3s] + "Tu peux mettre On écrit sur les murs" → `play_music`
+10. "Alexa" + [0.3s] + "Tu peux mettre Alors on danse" → `play_music`
 
 ### Negative (no wake word)
 1. "Joue de la musique" → Should NOT trigger
-2. "Tu peux mettre Louane" → Should NOT trigger
-3. "Plus fort s'il te plaît" → Should NOT trigger
+2. "Tu peux mettre Frozen" → Should NOT trigger
+3. "Mets Kids United" → Should NOT trigger
 
 ## Generation
 
@@ -69,30 +71,34 @@ python scripts/generate_e2e_french_tests.py
 **Output:**
 - 10 positive test files (~30 seconds total)
 - 3 negative test files (~10 seconds total)
-- `manifest.json` with metadata
+- `tests/audio_samples/e2e_french/manifest.json` (generated, gitignored)
+- `tests/audio_samples/test_metadata.json` (tracked, source of truth)
 
 ## Running Tests
 
 **All E2E tests:**
 ```bash
+export PISAT_RUN_HAILO_TESTS=1
 pytest tests/test_e2e_french.py -v
 ```
 
 **Specific test class:**
 ```bash
-pytest tests/test_e2e_french.py::TestFrenchE2EPositive -v
+export PISAT_RUN_HAILO_TESTS=1
+pytest tests/test_e2e_french.py::TestFrenchE2EMusic -v
 pytest tests/test_e2e_french.py::TestFrenchE2ENegative -v
 ```
 
 **With report:**
 ```bash
+export PISAT_RUN_HAILO_TESTS=1
 pytest tests/test_e2e_french.py::TestE2EStatistics -v -s
 ```
 
 ## Test Organization
 
 ### Class Structure
-- `TestFrenchE2EPositive` - 10 tests validating complete pipeline
+- `TestFrenchE2EMusic` - 10 tests validating complete pipeline
 - `TestFrenchE2ENegative` - 3 tests validating no false triggers
 - `TestE2EStatistics` - Generate coverage report
 
@@ -101,7 +107,7 @@ pytest tests/test_e2e_french.py::TestE2EStatistics -v -s
 2. **Command extraction** - Skip wake word, extract command
 3. **STT transcription** - Hailo transcribes French correctly
 4. **Intent classification** - IntentEngine matches correct intent
-5. **Parameter extraction** - Duration, time, query extracted
+5. **Metadata-driven slicing** - Uses `tests/audio_samples/test_metadata.json` (`command_start_s`)
 
 ## Quality Metrics
 
@@ -168,7 +174,7 @@ pytest tests/test_e2e_french.py -v -s
 **Add new test:**
 1. Add phrase to `E2E_TESTS` in `generate_e2e_french_tests.py`
 2. Regenerate: `python scripts/generate_e2e_french_tests.py`
-3. Add test method in `test_e2e_french.py`
+3. Tests are metadata-driven (no test code changes needed)
 
 **Update voice/model:**
 - Change `voice="Antoine"` or `model="..."` in generator

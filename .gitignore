@@ -33,16 +33,16 @@ debug_audio/
 *.wav.tmp
 benchmark_results*.json
 
-# Audio files - exclude generated samples
-# Keep: wake_word samples (hand-crafted), noise, stt, e2e reference
+# Audio files - exclude all except wake_word and test_metadata.json
+# Keep: wake_word samples (hand-crafted), test_metadata.json
 # Regenerate with: scripts/generate_*.py
 tests/audio_samples/_cache_tts/
+tests/audio_samples/e2e/
 tests/audio_samples/e2e_french/
 tests/audio_samples/integration/
-tests/audio_samples/language_tests/english/
-tests/audio_samples/language_tests/french/
-tests/audio_samples/language_tests/french_full/
-tests/audio_samples/language_tests/french_full_elevenlabs/
+tests/audio_samples/language_tests/
+tests/audio_samples/noise/
+tests/audio_samples/stt/
 tests/audio_samples/synthetic/
 tests/audio_samples/commands/
 

@@ -1,7 +1,27 @@
-import soundfile as sf
-import numpy as np
 import os
+import wave
+
+import numpy as np
+
 import config
+
+
+def read_wav_mono_int16(path: str) -> tuple[np.ndarray, int]:
+    """Read a WAV file as mono int16 numpy array + sample rate (WAV-only standard)."""
+    with wave.open(path, "rb") as wf:
+        channels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        rate = wf.getframerate()
+        frames = wf.getnframes()
+        raw = wf.readframes(frames)
+
+    if sampwidth != 2:
+        raise ValueError(f"expected 16-bit PCM WAV (sampwidth=2), got {sampwidth}: {path}")
+
+    audio = np.frombuffer(raw, dtype=np.int16)
+    if channels > 1:
+        audio = audio.reshape(-1, channels)[:, 0]
+    return audio, rate
 
 def reset_model_state(model):
     silence = np.zeros(config.CHUNK * 25, dtype=np.int16)
@@ -24,14 +44,12 @@ def process_audio_file(file_path, model):
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
     
     try:
-        audio, rate = sf.read(audio_path)
+        audio, rate = read_wav_mono_int16(audio_path)
     except Exception as e:
         raise Exception(f"Failed to read audio file {file_path}: {e}")
-    
-    if len(audio.shape) > 1:
-        audio = audio[:, 0]
-    
-    audio = (audio * 32767).astype(np.int16)
+
+    if audio.dtype != np.int16:
+        audio = audio.astype(np.int16)
     silence_pad = np.zeros(config.CHUNK * 10, dtype=np.int16)
     audio = np.concatenate([silence_pad, audio, silence_pad])
     

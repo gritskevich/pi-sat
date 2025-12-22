@@ -1,267 +1,114 @@
-# Pi-Sat Installation Guide
+# Pi‑Sat Installation (Raspberry Pi 5)
 
-Complete step-by-step installation guide for Pi-Sat voice-controlled music player on Raspberry Pi 5 with Hailo-8L.
+Goal: get **MPD + Piper + Hailo STT** working, then run `./pi-sat.sh run`.
 
----
+## 0) Prereqs
 
-## Prerequisites
+- Raspberry Pi OS 64‑bit
+- Hailo‑8L driver + SDK installed (Hailo commands work)
+- USB mic + speaker
 
-### Hardware Requirements
-
-✅ **Required:**
-- Raspberry Pi 5 (4GB or 8GB RAM recommended)
-- Hailo-8L AI Accelerator HAT
-- USB Microphone with hardware mute button (or Raspberry Pi camera with mic)
-- Speaker (3.5mm jack or USB)
-- MicroSD Card (32GB+ recommended, Class 10 or better)
-- Official Raspberry Pi 5 Power Supply (27W USB-C)
-
-⭐ **Optional but Recommended:**
-- Enclosure/Case
-
-### Software Requirements
-
-- Raspberry Pi OS (64-bit, Bullseye or newer)
-- Python 3.9+
-- Hailo SDK (comes with Hailo-8L driver installation)
-
----
-
-## Installation Steps
-
-### Step 1: System Update
-
+Quick Hailo check:
 ```bash
-sudo apt-get update
-sudo apt-get upgrade -y
-sudo reboot
-```
-
-### Step 2: Install Hailo SDK
-
-Follow Hailo's official installation guide for Raspberry Pi 5:
-
-```bash
-# Download Hailo driver package
-wget https://hailo.ai/downloads/hailo-rpi5-driver.tar.gz
-
-# Extract and install
-tar xzf hailo-rpi5-driver.tar.gz
-cd hailo-rpi5-driver
-sudo ./install.sh
-
-# Verify installation
 hailortcli fw-control identify
 ```
 
-**Expected output:** Should show Hailo-8L device information.
-
-### Step 3: Install System Dependencies
+## 1) Clone + install repo dependencies
 
 ```bash
-# Update package lists first
-sudo apt-get update
+git clone https://github.com/gritskevich/pi-sat.git
+cd pi-sat
 
-# Install all required packages in one command (tested and verified)
-sudo apt-get install -y \
-    mpd \
-    mpc \
-    portaudio19-dev \
-    libasound2-dev \
-    alsa-utils \
-    ffmpeg \
-    sox \
-    libsox-fmt-all \
-    libsndfile1 \
-    python3-pip \
-    python3-dev \
-    python3-venv \
-    direnv \
-    git
-
-# Verify installation
-which mpd && which mpc && which ffmpeg && which direnv && echo "✓ All packages installed"
+./pi-sat.sh install
 ```
 
-**Note:** We're not installing `ffmpeg-normalize` via apt as it's not in the default repos. We'll install it via pip if needed.
+Notes:
+- `./pi-sat.sh install` uses `sudo apt` and creates `./venv/`.
+- It also downloads openWakeWord models and installs Hailo example deps.
 
-### Step 4: Download and Install Piper TTS
+## 2) Install Piper binary (once)
+
+Pi‑Sat expects `PIPER_BINARY=/usr/local/bin/piper` (see `config.py`).
 
 ```bash
-# Download Piper binary for ARM64
 cd /tmp
 wget https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_arm64.tar.gz
-
-# Extract
 tar xzf piper_arm64.tar.gz
 cd piper
-
-# Install binary
 sudo cp piper /usr/local/bin/
 sudo chmod +x /usr/local/bin/piper
-
-# Install shared libraries
-sudo cp *.so* /usr/local/lib/
-sudo ldconfig
-
-# Install espeak-ng data
+sudo cp *.so* /usr/local/lib/ && sudo ldconfig
 sudo cp -r espeak-ng-data /usr/local/share/
-
-# Create symlink for espeak-ng data (Piper looks in /usr/share by default)
 sudo ln -sf /usr/local/share/espeak-ng-data /usr/share/espeak-ng-data
-
-# Verify installation
 piper --version
 ```
 
-**Expected output:** `1.2.0`
+## 3) Download the default voice model
 
-**Test Piper:**
 ```bash
-echo "Hello from Piper" | piper \
-    --model ~/pi-sat/resources/voices/en_US-lessac-medium.onnx \
-    --output-raw > /tmp/test.raw
-
-# Check output was generated
-ls -lh /tmp/test.raw
+./pi-sat.sh download_voice
 ```
 
-**Expected:** Should generate ~60-100KB raw audio file.
+## 4) Configure MPD (required)
 
-### Step 5: Clone Pi-Sat Repository
-
-```bash
-cd ~
-git clone https://github.com/gritskevich/pi-sat.git
-cd pi-sat
-```
-
-### Step 6: Set Up Python Virtual Environment
+Pi‑Sat starts MPD automatically, but it assumes `~/.mpd/mpd.conf` exists.
 
 ```bash
-# Create virtual environment with access to system site-packages
-# (needed for Hailo SDK Python bindings)
-python3 -m venv --system-site-packages venv
+mkdir -p ~/Music ~/.mpd/playlists
 
-# Activate virtual environment
-source venv/bin/activate
-
-# Upgrade pip
-pip install --upgrade pip setuptools wheel
-```
-
-### Step 7: Install Python Dependencies
-
-```bash
-# Install all Python packages from requirements.txt
-pip install -r requirements.txt
-
-# This will install:
-# - Audio processing (pyaudio, soundfile, librosa)
-# - Wake word detection (openwakeword)
-# - STT (transformers, torch)
-# - MPD client (python-mpd2)
-# - Fuzzy matching (thefuzz, python-Levenshtein)
-# - Testing (pytest)
-```
-
-**Note:** Installation may take 15-30 minutes depending on your internet speed.
-
-### Step 8: Download Hailo Whisper Models
-
-```bash
-# Run the Hailo setup script
-cd hailo_examples/speech_recognition
-./download_resources.sh
-
-# This downloads:
-# - Whisper encoder/decoder HEF files for hailo8l
-# - Pre-trained model weights
-```
-
-### Step 9: Download Piper Voice Model
-
-```bash
-cd ~/pi-sat
-
-# Create voices directory
-mkdir -p resources/voices
-
-# Download Piper voice model (en_US-lessac-medium)
-wget -O resources/voices/en_US-lessac-medium.onnx \
-    https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx
-
-# Download model config
-wget -O resources/voices/en_US-lessac-medium.onnx.json \
-    https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
-```
-
-### Step 10: Configure MPD
-
-```bash
-# Create MPD directories
-mkdir -p ~/Music/pisat
-mkdir -p ~/.mpd/playlists
-
-# Copy MPD configuration template
-cat > ~/.mpd/mpd.conf << 'EOF'
-# Music directory
-music_directory     "~/Music/pisat"
-
-# Playlists directory
+cat > ~/.mpd/mpd.conf <<'EOF'
+music_directory     "~/Music"
 playlist_directory  "~/.mpd/playlists"
-
-# MPD state files
 db_file             "~/.mpd/database"
 log_file            "~/.mpd/log"
 pid_file            "~/.mpd/pid"
 state_file          "~/.mpd/state"
 sticker_file        "~/.mpd/sticker.sql"
-
-# Network binding
 bind_to_address     "localhost"
 port                "6600"
 
-# Audio output (ALSA)
 audio_output {
     type        "alsa"
-    name        "Pi-Sat Speaker"
-    device      "plughw:0,0"
+    name        "Pi-Sat Audio"
+    device      "default"
     mixer_type  "software"
 }
 EOF
 
-# Expand ~ in config file
 sed -i "s|~|$HOME|g" ~/.mpd/mpd.conf
-
-# Start MPD
 mpd ~/.mpd/mpd.conf
-
-# Update MPD database
 mpc update
-
-# Verify MPD is running
 mpc status
 ```
 
-**Expected output:** Should show "volume: 100%  repeat: off  random: off  single: off  consume: off"
+If you’re not getting sound, pick the right ALSA device (see `docs/AUDIO.md`).
 
-### Step 11: Configure Environment Variables
+## 5) Run
 
 ```bash
-cd ~/pi-sat
+./pi-sat.sh run
+```
 
-# Copy environment template
-cp .envrc.local.example .envrc.local
+## 6) Local overrides (optional)
 
-# Edit .envrc.local for your setup
-nano .envrc.local
+Create `.envrc.local` for machine‑specific overrides (loaded by `.envrc`):
+
+```bash
+# Language
+export HAILO_STT_LANGUAGE='fr'   # or 'en'
+
+# Output device (example)
+export PIPER_OUTPUT_DEVICE='plughw:3,0'
+export OUTPUT_ALSA_DEVICE='plughw:3,0'
+
+# Ducking during listening
+export VOLUME_DUCK_LEVEL=5
 ```
 
 **Minimal .envrc.local:**
 ```bash
 # Music library path (already created in Step 10)
-export PISAT_MUSIC_DIR="$HOME/Music/pisat"
+export PISAT_MUSIC_DIR="$HOME/Music"
 
 # MPD connection
 export MPD_HOST="localhost"
@@ -323,7 +170,7 @@ cd ~/pi-sat
 
 ```bash
 # Copy MP3 files to music library
-cp /path/to/your/music/*.mp3 ~/Music/pisat/
+cp /path/to/your/music/*.mp3 ~/Music/
 
 # Update MPD database
 mpc update
@@ -493,7 +340,7 @@ cat > ~/pi-sat/scripts/usb_ingest.sh << 'EOF'
 # USB Auto-Import Script for Pi-Sat
 
 # Configuration
-MUSIC_DIR="$HOME/Music/pisat"
+MUSIC_DIR="$HOME/Music"
 LOG_FILE="$HOME/pi-sat/logs/usb_import.log"
 
 # Get USB mount point
@@ -632,7 +479,7 @@ pip install thefuzz python-Levenshtein
 - [ ] Piper TTS binary installed (`piper --version`)
 - [ ] Piper voice model downloaded (`ls resources/voices/`)
 - [ ] MPD configured and running (`mpc status`)
-- [ ] Music library created (`ls ~/Music/pisat/`)
+- [ ] Music library created (`ls ~/Music/`)
 - [ ] direnv configured (`direnv allow`)
 - [ ] Tests passing (`./pi-sat.sh test`)
 - [ ] Audio devices working (mic + speaker test)
@@ -644,7 +491,7 @@ pip install thefuzz python-Levenshtein
 
 ## Next Steps
 
-1. **Add More Music**: Copy MP3 files to `~/Music/pisat/` and run `mpc update`
+1. **Add More Music**: Copy MP3 files to `~/Music/` and run `mpc update`
 2. **Test Voice Commands**: Try "Play [song]", "Pause", "Skip", "I love this"
 3. **Configure Sleep Timer**: "Stop in 30 minutes"
 4. **Build Favorites**: Say "I love this" while songs play

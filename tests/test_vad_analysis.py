@@ -1,15 +1,19 @@
 import unittest
-import sys
 import os
-import soundfile as sf
-import numpy as np
-import webrtcvad
 import glob
-from modules.speech_recorder import SpeechRecorder
+import numpy as np
 import config
+from tests.test_utils import read_wav_mono_int16
+
+try:
+    import webrtcvad
+except ModuleNotFoundError:
+    webrtcvad = None
 
 class TestVADAnalysis(unittest.TestCase):
     def setUp(self):
+        if webrtcvad is None:
+            self.skipTest("Missing dependency: webrtcvad")
         self.vad = webrtcvad.Vad(config.VAD_LEVEL)
         self.frame_duration = config.FRAME_DURATION
         self.sample_rate = 16000
@@ -64,11 +68,9 @@ class TestVADAnalysis(unittest.TestCase):
                     audio_path = file
                     
                     if os.path.exists(audio_path):
-                        audio, rate = sf.read(audio_path)
-                        if len(audio.shape) > 1:
-                            audio = audio[:, 0]
-                        
-                        audio = (audio * 32767).astype(np.int16)
+                        audio, rate = read_wav_mono_int16(audio_path)
+                        if rate != self.sample_rate:
+                            continue
                         self.analyze_vad_frames(audio, filename)
     
     def test_silence_audio(self):

@@ -1,38 +1,30 @@
 # Scripts
 
-Utility scripts for testing and development.
+Utility scripts for testing and development (French-first).
 
-## speak.py
+## Audio Suites
 
-Standalone TTS utility - speaks text or reads from file.
-
-**Usage:**
 ```bash
-python scripts/speak.py "Hello world"
-python scripts/speak.py /path/to/story.txt
+# Generate ElevenLabs E2E French suite (updates metadata)
+export ELEVENLABS_API_KEY="..."
+python scripts/generate_e2e_french_tests.py
+
+# Refresh derived fields in metadata (duration, command_duration_s, ...)
+python scripts/refresh_audio_metadata.py
+
+# Add/mark a hand-made WAV in metadata
+python scripts/add_audio_test_case.py --suite e2e_french --group positive --file <wav> --full-phrase "..." --command "..." --intent play_music --parameters '{"query":"..."}'
 ```
 
-## test_live.py
+## Diagnostics (Mic timing + STT)
 
-Minimal live tests for wake word, STT, and full pipeline.
-
-**Usage:**
 ```bash
-python scripts/test_live.py wake      # Test wake word detection
-python scripts/test_live.py stt       # Test STT (record → transcribe)
-python scripts/test_live.py pipeline  # Test full pipeline
+# Plays a test WAV, records mic, slices command, runs STT, saves WAVs to /tmp
+python scripts/test_e2e_diagnostic.py
 ```
 
-## monitor_connections.sh
+## Misc
 
-Connection monitor - logs WiFi and USB mic status.
-
-**Usage:**
-```bash
-./scripts/monitor_connections.sh
-```
-
-## test_fr.txt
-
-Test file for French TTS testing.
-
+- `scripts/speak.py`: speak text (TTS)
+- `scripts/test_live.py`: quick live smoke tests (wake/STT/pipeline)
+- `scripts/monitor_connections.sh`: logs WiFi + USB mic status

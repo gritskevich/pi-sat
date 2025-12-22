@@ -1,9 +1,9 @@
 import unittest
 import os
-import soundfile as sf
-import numpy as np
 import glob
 from modules.speech_recorder import SpeechRecorder
+from tests.test_utils import read_wav_mono_int16
+import numpy as np
 import config
 
 class TestSpeechRecorder(unittest.TestCase):
@@ -29,11 +29,7 @@ class TestSpeechRecorder(unittest.TestCase):
                     audio_path = file
                     
                     if os.path.exists(audio_path):
-                        audio, rate = sf.read(audio_path)
-                        if len(audio.shape) > 1:
-                            audio = audio[:, 0]
-                        
-                        audio = (audio * 32767).astype(np.int16)
+                        audio, rate = read_wav_mono_int16(audio_path)
                         result = self.recorder.process_audio_chunks(audio, rate)
                         
                         self.assertIsInstance(result, bytes)

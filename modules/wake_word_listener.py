@@ -41,10 +41,22 @@ class WakeWordListener:
         self.p = None
         self.stream = None
         self.last_detection_time = 0
-        self.cooldown = 2.0
+        self.cooldown = float(getattr(config, "WAKE_WORD_COOLDOWN", 2.0))
         self.debug = debug
         self.running = True
         self.logger = setup_logger(__name__, debug=debug)
+
+    def _flush_stream_buffer(self):
+        """Drop any buffered audio collected while command processing blocked detection."""
+        if not self.stream:
+            return
+        try:
+            if hasattr(self.stream, "get_read_available"):
+                available = int(self.stream.get_read_available())
+                if available > 0:
+                    self.stream.read(available, exception_on_overflow=False)
+        except Exception:
+            pass
         
     def reset_model_state(self):
         silence = np.zeros(config.CHUNK * 25, dtype=np.int16)
@@ -130,6 +142,11 @@ class WakeWordListener:
                                 # Notify orchestrator with stream context (this will block until command processing completes)
                                 # Pass stream and input rate for immediate recording (eliminates stream creation latency)
                                 self._notify_orchestrator(stream=self.stream, input_rate=self._input_rate)
+                                # Soft cooldown starts AFTER command processing (prevents immediate re-trigger from buffered audio)
+                                self._flush_stream_buffer()
+                                self._resample_buf = np.zeros(0, dtype=np.int16)
+                                self.reset_model_state()
+                                self.last_detection_time = time.time()
                                 # Note: timestamp-based cooldown prevents duplicate detections
                         elif self.debug and confidence > config.LOW_CONFIDENCE_THRESHOLD:
                             log_debug(self.logger, f"👂 Low confidence: {wake_word} ({confidence:.2f})")

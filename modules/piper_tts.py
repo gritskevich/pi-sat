@@ -77,8 +77,8 @@ class PiperTTS:
 
         Args:
             text: Text to speak
-            volume: Optional volume (0-100). If None and volume_manager available,
-                    uses config.TTS_VOLUME. Uses volume_manager if available.
+            volume: Optional volume (0-100). If None, uses config.TTS_VOLUME.
+                    Uses aplay --volume for independent control (doesn't affect music).
 
         Returns:
             bool: True if successful, False otherwise
@@ -89,28 +89,23 @@ class PiperTTS:
 
         try:
             logger.debug(f"Speaking: '{text}'")
-            
-            # Handle volume: use provided volume, or config.TTS_VOLUME if volume_manager available
-            original_volume = None
-            target_volume = volume
-            
-            if self.volume_manager:
-                if target_volume is None:
-                    # Use default TTS volume from config
-                    import config
-                    target_volume = config.TTS_VOLUME
-                
-                if target_volume is not None:
-                    original_volume = self.volume_manager.get_tts_volume()
-                    self.volume_manager.set_tts_volume(target_volume)
-            elif volume is not None:
-                logger.warning("Volume specified but no volume_manager available")
 
-            # Use shell piping for simplicity and reliability
-            # echo text | piper --output-raw | aplay
+            # Determine target volume (0-100)
+            target_volume = volume
+            if target_volume is None:
+                import config
+                target_volume = config.TTS_VOLUME
+
+            # Convert TTS volume (0-100) to sox volume multiplier (0.0-1.0)
+            sox_volume = target_volume / 100.0
+
+            # Use shell piping with sox for volume control
+            # echo text | piper --output-raw | sox (raw→wav + volume) | aplay
+            # Note: sox vol provides independent control without affecting ALSA Master
             cmd = f'''echo {subprocess.list2cmdline([text])} | \
 {self.piper_binary} --model {subprocess.list2cmdline([str(self.model_path)])} --output-raw | \
-aplay -D {self.output_device} -r 22050 -f S16_LE -c 1 -q'''
+sox -t raw -r 22050 -e signed -b 16 -c 1 - -t wav - vol {sox_volume} | \
+aplay -D {self.output_device} -q'''
 
             result = subprocess.run(
                 cmd,
@@ -124,13 +119,7 @@ aplay -D {self.output_device} -r 22050 -f S16_LE -c 1 -q'''
                 logger.error(f"Speech command failed (code {result.returncode})")
                 if result.stderr:
                     logger.debug(f"Error output: {result.stderr}")
-                if original_volume is not None and self.volume_manager:
-                    self.volume_manager.set_tts_volume(original_volume)
                 return False
-
-            # Restore original volume if changed
-            if original_volume is not None and self.volume_manager:
-                self.volume_manager.set_tts_volume(original_volume)
 
             logger.debug("Speech playback completed successfully")
             return True
@@ -233,6 +222,21 @@ aplay -D {self.output_device} -r 22050 -f S16_LE -c 1 -q'''
             'stopped': "Stopped",
             'unknown': "I didn't understand that",
         }
+
+        # Keep templates minimal, but make critical fallbacks kid-friendly in French
+        # when running in French mode.
+        try:
+            import config
+            language = getattr(config, 'HAILO_STT_LANGUAGE', 'en')
+        except Exception:
+            language = 'en'
+
+        if language == 'fr':
+            templates.update({
+                'no_match': "Désolé, je n'ai pas trouvé ça dans ta bibliothèque",
+                'error': "Oups, j'ai eu un petit souci. Tu peux réessayer ?",
+                'unknown': "Désolé, je n'ai pas compris. Tu peux répéter, s'il te plaît ?",
+            })
 
         template = templates.get(intent, "Okay")
 

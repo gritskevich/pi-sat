@@ -1,20 +1,41 @@
 import numpy as np
-import webrtcvad
 import pyaudio
 import config
 from .logging_utils import setup_logger, log_info, log_success, log_warning, log_error, log_debug, log_audio
 from .audio_devices import find_input_device_index
 
+try:
+    import webrtcvad  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    webrtcvad = None
+
+
+class _FallbackVAD:
+    """Fallback when webrtcvad is unavailable (energy-only path can still work)."""
+
+    def __init__(self, level: int = 2):  # noqa: ARG002
+        pass
+
+    def is_speech(self, frame_bytes: bytes, sample_rate: int) -> bool:  # noqa: ARG002
+        # Let the energy-based detector decide.
+        return True
+
 class SpeechRecorder:
     def __init__(self, debug=False):
-        self.vad = webrtcvad.Vad(config.VAD_LEVEL)
         self.frame_duration = config.FRAME_DURATION
         self.silence_threshold = config.SILENCE_THRESHOLD
         self.recording_buffer = []
         self.is_recording = False
         self.debug = debug
-        self.p = pyaudio.PyAudio() if debug else None
         self.logger = setup_logger(__name__, debug=debug)
+
+        if webrtcvad is None:
+            log_warning(self.logger, "webrtcvad not installed - falling back to energy-only VAD")
+            self.vad = _FallbackVAD(config.VAD_LEVEL)
+        else:
+            self.vad = webrtcvad.Vad(config.VAD_LEVEL)
+
+        self.p = pyaudio.PyAudio() if debug else None
         
     def process_audio_chunks(self, audio, sample_rate):
         if sample_rate != 16000:
@@ -160,130 +181,172 @@ class SpeechRecorder:
                                   Allows recording to start immediately without blocking delay
 
         Returns:
-            Audio data as bytes
+            Audio data as 16 kHz mono int16 PCM bytes (raw, no WAV header)
         """
         import time
 
-        frames = []
-        speech_started = False
-        silence_frames = 0
+        frame_duration_ms = int(config.FRAME_DURATION)
+        frame_duration_s = frame_duration_ms / 1000.0
+        frames_per_second = 1.0 / frame_duration_s
+
+        # Work in fixed-size frames so WebRTC VAD receives valid 10/20/30ms chunks.
+        in_frame_samples = max(1, int(round(float(input_rate) * frame_duration_s)))
+        out_rate = 16000
+        out_frame_samples = max(1, int(round(float(out_rate) * frame_duration_s)))
 
         # Adaptive parameters from config
-        noise_floor = 0
-        speech_threshold_multiplier = config.VAD_SPEECH_MULTIPLIER
-        silence_duration = config.VAD_SILENCE_DURATION
-        min_speech_duration = config.VAD_MIN_SPEECH_DURATION
+        speech_threshold_multiplier = float(config.VAD_SPEECH_MULTIPLIER)
+        silence_frames_threshold = int(float(config.VAD_SILENCE_DURATION) * frames_per_second)
+        min_speech_frames = int(float(config.VAD_MIN_SPEECH_DURATION) * frames_per_second)
 
-        frame_duration_ms = config.FRAME_DURATION
-        frames_per_second = 1000 / frame_duration_ms
-        silence_frames_threshold = int(silence_duration * frames_per_second)
-        min_speech_frames = int(min_speech_duration * frames_per_second)
-
-        start_time = time.time()
-        speech_frame_count = 0
-
-        # Skip initial frames (e.g., wake sound contamination)
-        skip_frames = int(skip_initial_seconds * frames_per_second) if skip_initial_seconds > 0 else 0
+        # Skip frames at the start (wake sound contamination)
+        skip_frames = int(round(float(skip_initial_seconds) * frames_per_second)) if skip_initial_seconds > 0 else 0
         frames_skipped = 0
 
-        # Calibration phase - measure noise floor (first 0.3s AFTER skipped frames)
-        calibration_frames = int(0.3 * frames_per_second)
-        calibration_energy = []
+        # Calibration phase (after skip): measure noise floor for ~0.3s
+        calibration_frames = max(1, int(round(0.3 * frames_per_second)))
+        calibration_energy: list[float] = []
+        noise_floor = 0.0
+        speech_threshold = 0.0
+
+        # Pre-roll to avoid clipping the start of speech
+        pre_roll_max = max(1, calibration_frames)
+        pre_roll_frames: list[bytes] = []
+
+        input_buf = np.zeros(0, dtype=np.int16)
+        output_frames: list[bytes] = []
+        speech_started = False
+        speech_frame_count = 0
+        silence_frames = 0
+
+        processed_frames_total = 0
+        max_frames_total = int(round(float(max_duration) * frames_per_second))
+        max_reached = False
 
         if skip_initial_seconds > 0:
-            log_audio(self.logger, f"🎤 Recording with adaptive VAD (skipping first {skip_initial_seconds:.1f}s)...")
+            log_audio(self.logger, f"🎤 Recording (skip {skip_initial_seconds:.2f}s, frame {frame_duration_ms}ms)...")
         else:
-            log_audio(self.logger, "🎤 Recording with adaptive VAD...")
+            log_audio(self.logger, f"🎤 Recording (frame {frame_duration_ms}ms)...")
+
+        def _resample_frame_to_16k(frame_in: np.ndarray) -> np.ndarray:
+            if input_rate == out_rate:
+                if frame_in.size == out_frame_samples:
+                    return frame_in
+                # Pad/truncate defensively if rates match but rounding differs.
+                if frame_in.size > out_frame_samples:
+                    return frame_in[:out_frame_samples]
+                pad = np.zeros(out_frame_samples - frame_in.size, dtype=np.int16)
+                return np.concatenate([frame_in, pad])
+
+            src = frame_in.astype(np.float32)
+            x_old = np.linspace(0.0, 1.0, num=src.size, dtype=np.float32)
+            x_new = np.linspace(0.0, 1.0, num=out_frame_samples, dtype=np.float32)
+            resampled = np.interp(x_new, x_old, src)
+            return np.clip(resampled, -32768, 32767).astype(np.int16)
 
         while True:
-            elapsed = time.time() - start_time
-            if elapsed > max_duration:
-                log_audio(self.logger, f"🎤 Max recording time reached ({max_duration}s)")
-                break
-
             try:
                 data = stream.read(config.CHUNK, exception_on_overflow=False)
-                audio = np.frombuffer(data, dtype=np.int16)
+            except Exception as e:
+                log_error(self.logger, f"Recording error (stream.read): {e}")
+                break
 
-                # Skip initial frames (wake sound contamination)
+            audio_in = np.frombuffer(data, dtype=np.int16)
+            if audio_in.size == 0:
+                continue
+
+            input_buf = np.concatenate((input_buf, audio_in))
+
+            while input_buf.size >= in_frame_samples:
+                frame_in = input_buf[:in_frame_samples]
+                input_buf = input_buf[in_frame_samples:]
+
                 if frames_skipped < skip_frames:
                     frames_skipped += 1
-                    if self.debug and frames_skipped % 10 == 0:
-                        log_debug(self.logger, f"Skipping frames: {frames_skipped}/{skip_frames}")
-                    continue  # Discard frame without processing
-
-                # Resample to 16kHz for VAD if needed
-                if input_rate != 16000 and audio.size > 0:
-                    src = audio.astype(np.float32)
-                    ratio = 16000 / float(input_rate)
-                    new_len = max(1, int(round(audio.size * ratio)))
-                    x_old = np.linspace(0.0, 1.0, num=audio.size, dtype=np.float32)
-                    x_new = np.linspace(0.0, 1.0, num=new_len, dtype=np.float32)
-                    resampled = np.interp(x_new, x_old, src)
-                    audio_16k = np.clip(resampled, -32768, 32767).astype(np.int16)
-                else:
-                    audio_16k = audio
-
-                # Calculate energy (RMS)
-                energy = np.sqrt(np.mean(audio_16k.astype(np.float32) ** 2))
-
-                # Calibration phase - measure ambient noise (AFTER skipped frames)
-                if len(calibration_energy) < calibration_frames:
-                    calibration_energy.append(energy)
-                    if self.debug and len(calibration_energy) % 5 == 0:
-                        log_debug(self.logger, f"Calibrating... ({len(calibration_energy)}/{calibration_frames} frames, current energy: {energy:.1f})")
-                    if len(calibration_energy) == calibration_frames:
-                        noise_floor = np.median(calibration_energy)
-                        speech_threshold = noise_floor * speech_threshold_multiplier
-                        log_audio(self.logger, f"📊 Noise floor: {noise_floor:.1f} RMS → Speech threshold: {speech_threshold:.1f} RMS ({speech_threshold_multiplier}x)")
+                    processed_frames_total += 1
+                    if max_frames_total > 0 and processed_frames_total >= max_frames_total:
+                        max_reached = True
+                        break
                     continue
 
-                # VAD check (WebRTC)
+                processed_frames_total += 1
+                if max_frames_total > 0 and processed_frames_total >= max_frames_total:
+                    max_reached = True
+
+                frame_16k = _resample_frame_to_16k(frame_in)
+                energy = float(np.sqrt(np.mean(frame_16k.astype(np.float32) ** 2)))
+
+                # Calibration (keep frames in pre-roll, don't drop audio)
+                if len(calibration_energy) < calibration_frames:
+                    calibration_energy.append(energy)
+                    pre_roll_frames.append(frame_16k.tobytes())
+                    if len(pre_roll_frames) > pre_roll_max:
+                        pre_roll_frames.pop(0)
+
+                    if len(calibration_energy) == calibration_frames:
+                        noise_floor = float(np.median(calibration_energy))
+                        if noise_floor < 1.0:
+                            noise_floor = 1.0
+                        speech_threshold = noise_floor * speech_threshold_multiplier
+                        log_audio(
+                            self.logger,
+                            f"📊 Noise floor: {noise_floor:.1f} RMS → Speech threshold: {speech_threshold:.1f} RMS ({speech_threshold_multiplier}x)",
+                        )
+                    continue
+
+                # WebRTC VAD (16k, 10/20/30ms frames only)
                 try:
-                    is_speech_vad = self.vad.is_speech(audio_16k.tobytes(), 16000)
-                except:
+                    is_speech_vad = self.vad.is_speech(frame_16k.tobytes(), out_rate)
+                except Exception:
                     is_speech_vad = False
 
-                # Energy-based speech detection
-                speech_threshold = noise_floor * speech_threshold_multiplier
                 is_speech_energy = energy > speech_threshold
-
-                # Combined decision (both must agree)
                 is_speech = is_speech_vad and is_speech_energy
 
-                # Debug logging
-                if self.debug and speech_started:
-                    log_debug(self.logger, f"Energy: {energy:.1f}, Threshold: {speech_threshold:.1f}, VAD: {is_speech_vad}, Energy: {is_speech_energy}, Speech: {is_speech}")
+                if self.debug and (speech_started or is_speech):
+                    log_debug(
+                        self.logger,
+                        f"Energy: {energy:.1f}, Thresh: {speech_threshold:.1f}, VAD: {is_speech_vad}, EnergyOK: {is_speech_energy}, Speech: {is_speech}",
+                    )
 
-                # Store frame
-                frames.append(data)
+                if not speech_started:
+                    # Maintain rolling pre-roll until speech starts.
+                    pre_roll_frames.append(frame_16k.tobytes())
+                    if len(pre_roll_frames) > pre_roll_max:
+                        pre_roll_frames.pop(0)
 
                 if is_speech:
                     if not speech_started:
                         speech_started = True
+                        output_frames.extend(pre_roll_frames)
+                        pre_roll_frames.clear()
                         log_audio(self.logger, f"🗣️  Speech detected (energy: {energy:.1f} > {speech_threshold:.1f})")
+                    output_frames.append(frame_16k.tobytes())
                     speech_frame_count += 1
                     silence_frames = 0
                 else:
                     if speech_started:
+                        output_frames.append(frame_16k.tobytes())
                         silence_frames += 1
-                        if self.debug and silence_frames % 10 == 0:
-                            log_debug(self.logger, f"Silence frames: {silence_frames}/{silence_frames_threshold} (energy: {energy:.1f})")
 
                 # End detection - enough silence after minimum speech
-                if speech_started and silence_frames >= silence_frames_threshold:
-                    if speech_frame_count >= min_speech_frames:
-                        log_audio(self.logger, f"Recording complete: {elapsed:.1f}s")
-                        break
+                if speech_started and silence_frames >= silence_frames_threshold and speech_frame_count >= min_speech_frames:
+                    recorded_s = processed_frames_total * frame_duration_s
+                    log_audio(self.logger, f"Recording complete: {recorded_s:.1f}s")
+                    return b"".join(output_frames)
 
-            except Exception as e:
-                log_error(self.logger, f"Recording error: {e}")
+                if max_reached:
+                    break
+
+            if max_reached:
+                recorded_s = processed_frames_total * frame_duration_s
+                log_audio(self.logger, f"🎤 Max recording time reached ({recorded_s:.1f}s)")
                 break
 
-        if not frames:
+        if not speech_started:
             return b""
 
-        return b''.join(frames)
+        return b"".join(output_frames)
 
     def record_command(self):
         """Record a command using microphone input with VAD"""
@@ -291,7 +354,7 @@ class SpeechRecorder:
             # Return a dummy audio buffer with some speech-like content for testing
             # Create a simple sine wave to simulate speech
             import math
-            sample_rate = config.RATE
+            sample_rate = config.SAMPLE_RATE
             duration = 2.0  # 2 seconds
             frequency = 440  # A4 note
             samples = int(sample_rate * duration)

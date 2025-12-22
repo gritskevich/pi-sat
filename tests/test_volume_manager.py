@@ -11,6 +11,7 @@ from unittest.mock import Mock, MagicMock, patch, call
 import subprocess
 
 from modules.volume_manager import VolumeManager
+import config
 
 
 class TestVolumeManager(unittest.TestCase):
@@ -204,16 +205,17 @@ class TestVolumeManager(unittest.TestCase):
         self.assertIn("60", message)
         manager.set_music_volume.assert_called_once_with(60)
 
-    def test_music_volume_up_caps_at_100(self):
-        """Test: Volume increase caps at 100%"""
+    def test_music_volume_up_caps_at_max_volume(self):
+        """Test: Volume increase caps at MAX_VOLUME"""
         manager = VolumeManager(mpd_controller=None)
-        manager.get_music_volume = Mock(return_value=95)
+        max_vol = min(100, config.MAX_VOLUME)
+        manager.get_music_volume = Mock(return_value=max(0, max_vol - 5))
         manager.set_music_volume = Mock(return_value=True)
         
         success, message = manager.music_volume_up(amount=10)
         
         self.assertTrue(success)
-        manager.set_music_volume.assert_called_once_with(100)
+        manager.set_music_volume.assert_called_once_with(max_vol)
 
     def test_music_volume_down(self):
         """Test: Decrease music volume"""
@@ -315,7 +317,17 @@ class TestVolumeManager(unittest.TestCase):
         self.assertFalse(manager._ducking_active)
         self.assertIsNone(manager._music_original_volume)
 
+    def test_volume_up_while_ducked_updates_restore_target(self):
+        """Test: volume_up during ducking adjusts restore volume (doesn't get lost)"""
+        manager = VolumeManager(mpd_controller=None)
+        manager._ducking_active = True
+        manager._music_original_volume = 40
+
+        success, message = manager.music_volume_up(amount=10)
+
+        self.assertTrue(success)
+        self.assertEqual(manager._music_original_volume, min(100, config.MAX_VOLUME, 50))
+
 
 if __name__ == '__main__':
     unittest.main()
-

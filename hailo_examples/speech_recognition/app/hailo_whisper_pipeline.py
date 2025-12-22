@@ -40,6 +40,9 @@ class HailoWhisperPipeline:
 
         # Get language token ID from tokenizer
         self.language_token_id = self._get_language_token_id()
+        # Force transcription (avoid implicit translation-to-English on multilingual audio)
+        self.transcribe_token_id = self._get_token_id("<|transcribe|>")
+        self.no_timestamps_token_id = self._get_token_id("<|notimestamps|>")
 
         self.data_queue = Queue()
         self.results_queue = Queue()
@@ -85,6 +88,13 @@ class HailoWhisperPipeline:
             print(f"Warning: Language '{self.language}' not found in tokenizer, defaulting to English")
             token_id = self.tokenizer.convert_tokens_to_ids("<|en|>")
 
+        return token_id
+
+    def _get_token_id(self, token: str) -> int:
+        token_id = self.tokenizer.convert_tokens_to_ids(token)
+        if token_id == self.tokenizer.unk_token_id:
+            print(f"Warning: Token '{token}' not found in tokenizer; disabling it")
+            return None
         return token_id
 
     def _tokenization(self, decoder_input_ids):
@@ -154,20 +164,25 @@ class HailoWhisperPipeline:
                             encoded_features = encoder_bindings.output().get_buffer()
 
                             # Decoder
-                            # Start with <|startoftranscript|> token (50258) followed by language token
+                            # Whisper SOT sequence:
+                            # <|startoftranscript|> + <|lang|> + <|transcribe|> + <|notimestamps|>
+                            # (forces transcription in the target language; avoids implicit translation)
                             start_token_id = 50258
-                            decoder_input_ids = np.array(
-                                [[start_token_id, self.language_token_id]], dtype=np.int64
-                            )  # Shape (1,2) - includes start token and language token
-                            decoder_input_ids = np.concatenate(
-                                [decoder_input_ids, np.zeros((1, self.decoding_sequence_length - 2), dtype=np.int64)], axis=1
-                            )
+                            prefix_tokens = [start_token_id, self.language_token_id]
+                            if self.transcribe_token_id is not None:
+                                prefix_tokens.append(self.transcribe_token_id)
+                            if self.no_timestamps_token_id is not None:
+                                prefix_tokens.append(self.no_timestamps_token_id)
+
+                            decoder_input_ids = np.zeros((1, self.decoding_sequence_length), dtype=np.int64)
+                            decoder_input_ids[0, :len(prefix_tokens)] = np.array(prefix_tokens, dtype=np.int64)
 
                             generated_tokens = []
                             decoder_outputs = None
                             # Run Decoder Iteratively
-                            # Start from position 2 since positions 0 and 1 have start and language tokens
-                            for i in range(self.decoding_sequence_length - 2):
+                            # Predict tokens after the fixed prefix.
+                            prefix_len = len(prefix_tokens)
+                            for i in range(self.decoding_sequence_length - prefix_len):
                                 tokenized_ids = self._tokenization(decoder_input_ids)
 
                                 decoder_bindings.input(f"{decoder_model_name}/input_layer1").set_buffer(encoded_features)
@@ -189,15 +204,19 @@ class HailoWhisperPipeline:
 
                                 # Decoder post-processing
                                 repetition_penalty = 1.5
-                                # Adjust index: i+1 because position 0 is start token, 1 is language token
-                                logits = apply_repetition_penalty(decoder_outputs[:, i+1], generated_tokens, penalty=repetition_penalty)
+                                # Causal LM: logits at position t predict token at position t+1.
+                                logits_index = (prefix_len - 1) + i
+                                logits = apply_repetition_penalty(
+                                    decoder_outputs[:, logits_index],
+                                    generated_tokens,
+                                    penalty=repetition_penalty
+                                )
                                 next_token = np.argmax(logits)
                                 #else:
                                 #   next_token = np.argmax(decoder_outputs[0][:, i])
 
                                 generated_tokens.append(next_token)
-                                # Fill position i+2 (positions 0 and 1 are already used)
-                                decoder_input_ids[0][i + 2] = np.array([[next_token]], dtype=np.int64)
+                                decoder_input_ids[0][i + prefix_len] = np.array([[next_token]], dtype=np.int64)
 
                                 if next_token == self.tokenizer.eos_token_id:
                                     break
@@ -233,4 +252,3 @@ class HailoWhisperPipeline:
         """
         self.running = False
         self.thread.join()
-

@@ -16,17 +16,47 @@ This validates the REAL orchestrator flow, not just component integration.
 import os
 import json
 import pytest
-import soundfile as sf
 from pathlib import Path
-from modules.command_processor import CommandProcessor
-from modules.hailo_stt import HailoSTT
-from modules.intent_engine import IntentEngine
-from modules.music_library import MusicLibrary
+
+RUN_HAILO_TESTS = os.getenv("PISAT_RUN_HAILO_TESTS", "0") == "1"
+from tests.test_utils import read_wav_mono_int16
+
+pytestmark = [
+    pytest.mark.skipif(not RUN_HAILO_TESTS, reason="Set PISAT_RUN_HAILO_TESTS=1 for Hailo E2E tests"),
+]
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+METADATA_PATH = PROJECT_ROOT / "tests" / "audio_samples" / "test_metadata.json"
+SUITE_ID = "e2e_french"
+
+def _load_suite_or_skip():
+    if not METADATA_PATH.exists():
+        pytest.skip(f"Missing: {METADATA_PATH}", allow_module_level=True)
+
+    with open(METADATA_PATH, "r", encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    try:
+        return metadata["suites"][SUITE_ID]
+    except KeyError:
+        pytest.skip(f"Missing suite '{SUITE_ID}' in {METADATA_PATH}", allow_module_level=True)
 
 
-# Test data directory
-AUDIO_DIR = Path(__file__).parent / "audio_samples" / "e2e_french"
-MANIFEST = AUDIO_DIR / "manifest.json"
+SUITE = _load_suite_or_skip()
+POSITIVE_CASES = SUITE["tests"]["positive"]
+
+INTENT_TO_MPD_COMMAND = {
+    "play_music": "play",
+    "play_favorites": "play_favorites",
+    "pause": "pause",
+    "resume": "resume",
+    "stop": "stop",
+    "next": "next",
+    "previous": "previous",
+    "volume_up": "volume_up",
+    "volume_down": "volume_down",
+    "add_favorite": "add_favorite",
+}
 
 
 class FakeSpeechRecorder:
@@ -88,13 +118,33 @@ class FakeMPD:
         self.commands.append(('pause',))
         return True, "Paused"
 
+    def resume(self):
+        self.commands.append(("resume",))
+        return True, "Resumed"
+
+    def stop(self):
+        self.commands.append(("stop",))
+        return True, "Stopped"
+
     def next(self):
         self.commands.append(('next',))
         return True, "Next"
 
+    def previous(self):
+        self.commands.append(("previous",))
+        return True, "Previous"
+
     def volume_up(self, step=10):
         self.commands.append(('volume_up', step))
         return True, "Volume up"
+
+    def volume_down(self, step=10):
+        self.commands.append(("volume_down", step))
+        return True, "Volume down"
+
+    def play_favorites(self):
+        self.commands.append(("play_favorites",))
+        return True, "Playing favorites"
 
     def add_to_favorites(self):
         self.commands.append(('add_favorite',))
@@ -102,65 +152,64 @@ class FakeMPD:
 
 
 @pytest.fixture(scope="module")
-def test_manifest():
-    """Load test manifest."""
-    if not MANIFEST.exists():
-        pytest.skip("Run: python scripts/generate_e2e_french_tests.py")
+def e2e_suite():
+    """Suite metadata for DRY audio-driven tests."""
+    # Skip early if audio isn't generated (folder is gitignored)
+    sample = PROJECT_ROOT / POSITIVE_CASES[0]["file"]
+    if not sample.exists():
+        pytest.skip("Test audio not generated. Run: python scripts/generate_e2e_french_tests.py")
 
-    with open(MANIFEST, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    return SUITE
 
 
 @pytest.fixture(scope="module")
 def hailo_stt():
     """Real Hailo STT instance."""
-    if os.getenv("PISAT_RUN_HAILO_TESTS", "0") != "1":
-        pytest.skip("Set PISAT_RUN_HAILO_TESTS=1 for Hailo tests")
+    from modules.hailo_stt import HailoSTT
 
-    try:
-        stt = HailoSTT(language='fr')
-        yield stt
-        stt.cleanup()
-    except Exception as e:
-        pytest.skip(f"Hailo STT unavailable: {e}")
+    stt = HailoSTT(language="fr")
+    if not stt.is_available():
+        pytest.skip("Hailo STT not available (model/pipeline not loaded)")
+
+    yield stt
+    stt.cleanup()
 
 
 @pytest.fixture(scope="module")
 def intent_engine():
     """Real Intent engine instance."""
-    return IntentEngine(language='fr')
+    from modules.intent_engine import IntentEngine
+    return IntentEngine(language="fr")
 
 
 
 
-def load_command_audio(test_case, manifest):
-    """Load command audio (skip wake word based on manifest)."""
-    skip_duration = manifest["metadata"]["command_skip_s"]
-    audio_path = AUDIO_DIR / test_case["file"]
+def load_command_audio(test_case, suite):
+    """Load command audio (skip wake word based on metadata)."""
+    command_start_s = test_case.get("command_start_s", suite["structure"]["command_start_s"])
+    audio_path = PROJECT_ROOT / test_case["file"]
 
     # Load full audio
-    audio_data, sample_rate = sf.read(audio_path)
+    audio_data, sample_rate = read_wav_mono_int16(str(audio_path))
 
     # Skip wake word + pause
-    command_start = int(skip_duration * sample_rate)
+    command_start = int(command_start_s * sample_rate)
     command_audio = audio_data[command_start:]
 
     # Convert to int16 PCM bytes
-    import numpy as np
-    audio_int16 = (command_audio * 32767).astype(np.int16)
-    return audio_int16.tobytes()
+    return command_audio.tobytes()
 
 
 class TestFrenchE2ETrue:
     """True E2E tests - Full orchestrator pipeline."""
 
-    @pytest.mark.parametrize("test_idx", range(10))
-    def test_full_pipeline(self, test_idx, test_manifest, hailo_stt, intent_engine):
+    @pytest.mark.parametrize("test_case", POSITIVE_CASES, ids=lambda c: f"{c['id']:02d}_{c['intent']}")
+    def test_full_pipeline(self, test_case, e2e_suite, hailo_stt, intent_engine):
         """Test complete pipeline: Audio → STT → Intent → MusicResolver → MPD → TTS"""
-        test_case = test_manifest["positive_tests"][test_idx]
+        from modules.command_processor import CommandProcessor
 
         # Load command audio (wake word already detected, skip it)
-        command_bytes = load_command_audio(test_case, test_manifest)
+        command_bytes = load_command_audio(test_case, e2e_suite)
 
         # Create fake dependencies
         fake_recorder = FakeSpeechRecorder(command_bytes)
@@ -184,7 +233,7 @@ class TestFrenchE2ETrue:
         success = processor.process_command()
 
         # Validate pipeline executed
-        assert success, f"Pipeline failed for: {test_case['phrase']}"
+        assert success, f"Pipeline failed for: {test_case['full_phrase']}"
 
         # Validate each step using internal methods (like test_orchestrator_e2e.py)
         transcript = processor._transcribe_audio(command_bytes)
@@ -192,18 +241,21 @@ class TestFrenchE2ETrue:
 
         intent = processor._classify_intent(transcript)
         assert intent is not None, f"No intent for: {transcript}"
-        assert intent.intent_type == "play_music", f"Wrong intent: {intent.intent_type}"
+        assert intent.intent_type == test_case["intent"], f"Wrong intent: {intent.intent_type}"
 
         # Validate MPD was called with play command
         assert len(fake_mpd.commands) > 0, "MPD not called"
-        assert fake_mpd.commands[0][0] == "play", f"Wrong MPD command: {fake_mpd.commands[0]}"
-        assert fake_mpd.last_query is not None, "No query passed to MPD"
+        expected_command = INTENT_TO_MPD_COMMAND.get(test_case["intent"])
+        if expected_command is not None:
+            assert fake_mpd.commands[0][0] == expected_command, f"Wrong MPD command: {fake_mpd.commands[0]}"
+        if expected_command == "play":
+            assert fake_mpd.last_query is not None, "No query passed to MPD"
 
         # Validate TTS response
         assert len(fake_tts.spoken_texts) > 0, "No TTS response"
 
         # Debug output
-        print(f"\n✅ {test_case['phrase']}")
+        print(f"\n✅ {test_case['full_phrase']}")
         print(f"   Transcript: {transcript}")
         print(f"   Intent: {intent.intent_type}")
         print(f"   Query: {fake_mpd.last_query}")
@@ -214,7 +266,7 @@ class TestFrenchE2ETrue:
 class TestE2EStatistics:
     """Generate E2E test statistics."""
 
-    def test_generate_report(self, test_manifest):
+    def test_generate_report(self, e2e_suite):
         """Print test suite statistics."""
         print("\n" + "="*80)
         print("TRUE E2E TEST REPORT")
@@ -230,15 +282,16 @@ class TestE2EStatistics:
         print(f"  7. TTS response (MOCKED)")
 
         print(f"\n🎯 Test Coverage:")
-        print(f"  Music commands: {len(test_manifest['positive_tests'])}")
-        print(f"  Negative tests: {len(test_manifest['negative_tests'])}")
+        print(f"  Music commands: {len(e2e_suite['tests']['positive'])}")
+        print(f"  Negative tests: {len(e2e_suite['tests']['negative'])}")
 
-        metadata = test_manifest["metadata"]
+        structure = e2e_suite["structure"]
+        voice = e2e_suite["voice"]
         print(f"\n⚙️  Audio Configuration:")
-        print(f"  Wake word duration: {metadata['wake_word_duration_s']:.2f}s")
-        print(f"  Pause duration: {metadata['pause_duration_s']}s")
-        print(f"  Skip duration: {metadata['command_skip_s']:.2f}s")
-        print(f"  Voice: {metadata['voice']}")
+        print(f"  Wake word duration: {structure['wake_word_duration_s']:.2f}s")
+        print(f"  Pause duration: {structure['pause_duration_s']}s")
+        print(f"  Command start: {structure['command_start_s']:.2f}s")
+        print(f"  Voice: {voice['voice_name']} ({voice['provider']})")
 
         print(f"\n✅ Full orchestrator pipeline validated")
         print("="*80)

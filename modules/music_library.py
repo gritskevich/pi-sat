@@ -229,6 +229,17 @@ class MusicLibrary:
 
         query = query.strip()
 
+        # Fast path: exact match (avoids token_set_ratio "subset=100" ambiguity)
+        norm_query = self._normalize_variant(query)
+        query_lower = query.lower()
+        for file_path, variants in self._catalog_metadata:
+            basename = os.path.splitext(os.path.basename(file_path))[0]
+            if basename.lower() == query_lower or self._normalize_variant(basename) == norm_query:
+                return (file_path, 1.0)
+            for variant in variants:
+                if variant.lower() == query_lower or self._normalize_variant(variant) == norm_query:
+                    return (file_path, 1.0)
+
         # Choose search method
         if self.phonetic_enabled and self._phonetic_matcher:
             # Hybrid search (text + phonetic)
@@ -267,6 +278,18 @@ class MusicLibrary:
             return None
 
         query = query.strip()
+
+        # Fast path: exact match
+        norm_query = self._normalize_variant(query)
+        query_lower = query.lower()
+        for file_path, variants in self._catalog_metadata:
+            basename = os.path.splitext(os.path.basename(file_path))[0]
+            if basename.lower() == query_lower or self._normalize_variant(basename) == norm_query:
+                return (file_path, 1.0)
+            for variant in variants:
+                if variant.lower() == query_lower or self._normalize_variant(variant) == norm_query:
+                    return (file_path, 1.0)
+
         cache_key = query.lower()
         cached = self._search_best_cache.get(cache_key)
         if cached:
@@ -634,7 +657,7 @@ def main():
     if len(sys.argv) > 1:
         library_path = sys.argv[1]
     else:
-        library_path = os.path.expanduser("~/Music/pisat")
+        library_path = os.path.expanduser("~/Music")
 
     print("Music Library Test\n")
     print("=" * 60)
