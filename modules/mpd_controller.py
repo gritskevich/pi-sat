@@ -303,7 +303,7 @@ class MPDController:
         Play music.
 
         Args:
-            query: Search query for song/artist (None to resume current)
+            query: Search query for song/artist, OR exact file path from validator (None to resume current)
 
         Returns:
             Tuple of (success, message, confidence)
@@ -321,16 +321,24 @@ class MPDController:
                 status = self.get_status()
                 return (True, f"Playing {status['song']}", None)
 
-            # Search for music matching query - ALWAYS return best match
-            logger.info(f"Song detection request: '{query}'")
-            search_result = self.search_music_best(query)
+            # Check if query is an exact file path (from validator) or a search query
+            # File paths end with .mp3 and exist in the catalog
+            if query.endswith('.mp3') and self._music_library.file_exists(query):
+                # Direct file path from validator - use it directly, no search needed
+                matched_file = query
+                confidence = 1.0
+                logger.info(f"🎵 Playing exact file: '{matched_file}'")
+            else:
+                # Search query - find best match
+                logger.info(f"Song detection request: '{query}'")
+                search_result = self.search_music_best(query)
 
-            if not search_result:
-                # Only happens if catalog is completely empty
-                return (False, f"Music library is empty", 0.0)
+                if not search_result:
+                    # Only happens if catalog is completely empty
+                    return (False, f"Music library is empty", 0.0)
 
-            matched_file, confidence = search_result
-            logger.info(f"Song detection answer: '{matched_file}' ({confidence:.2%})")
+                matched_file, confidence = search_result
+                logger.info(f"Song detection answer: '{matched_file}' ({confidence:.2%})")
 
             # Keep a real shuffle queue so the next track is random (continuous shuffle by default).
             try:
@@ -353,7 +361,10 @@ class MPDController:
 
             self.client.playid(song_id)
 
-            logger.info(f"Playing: {matched_file} (confidence: {confidence:.2%})")
+            # Get song details for better logging
+            song_title = os.path.splitext(os.path.basename(matched_file))[0]
+            logger.info(f"🎵 Now playing: {song_title}")
+            logger.debug(f"   File: {matched_file} (confidence: {confidence:.2%})")
             return (True, f"Playing {query}", confidence)
 
     def pause(self) -> Tuple[bool, str]:
@@ -365,6 +376,8 @@ class MPDController:
         """
         with self._ensure_connection():
             self.client.pause(1)
+            status = self.get_status()
+            logger.info(f"⏸️  Paused: {status['song']}")
             return (True, "Paused")
 
     def resume(self) -> Tuple[bool, str]:
@@ -377,6 +390,7 @@ class MPDController:
         with self._ensure_connection():
             self.client.pause(0)
             status = self.get_status()
+            logger.info(f"▶️  Resumed: {status['song']}")
             return (True, f"Resuming {status['song']}")
 
     def stop(self) -> Tuple[bool, str]:
@@ -388,6 +402,7 @@ class MPDController:
         """
         with self._ensure_connection():
             self.client.stop()
+            logger.info("⏹️  Playback stopped")
             return (True, "Stopped")
 
     def next(self) -> Tuple[bool, str]:
@@ -402,8 +417,10 @@ class MPDController:
             try:
                 status = self.client.status()
                 playlist_length = int(status.get('playlistlength', 0) or 0)
+                current_state = status.get('state', 'stop')
             except Exception:
                 playlist_length = None
+                current_state = 'stop'
 
             if playlist_length is not None and playlist_length <= 1:
                 try:
@@ -412,42 +429,45 @@ class MPDController:
                     pass
 
             try:
-                if playlist_length == 0:
+                # If stopped, we need to start playing instead of calling next()
+                # because MPD's next() requires active playback
+                if current_state == 'stop':
+                    if playlist_length == 0:
+                        # Empty queue - seed and play
+                        try:
+                            self._ensure_queue_seeded(min_songs=1)
+                        except Exception:
+                            pass
+                    # Start playing from the beginning (or continue where we left off)
+                    self.client.play()
+                elif playlist_length == 0:
+                    # Queue empty but playing - shouldn't happen, but handle it
                     self.client.play()
                 else:
+                    # Normal case: skip to next song
                     self.client.next()
             except Exception as e:
                 logger.error(f"MPD next() failed: {e}")
                 return (False, f"Could not skip to next: {e}")
-            
+
             # Wait a moment for MPD to process
             time.sleep(0.1)
-            
+
             # Get new status
             new_status = self.client.status()
             current = self.client.currentsong()
-            
-            # Check if actually playing
-            if new_status.get('state') == 'stop':
-                # Try to start playback
-                try:
-                    self.client.play()
-                    time.sleep(0.1)
-                    new_status = self.client.status()
-                    current = self.client.currentsong()
-                except:
-                    pass
-            
+
             # Extract song name
             song_name = current.get('title') or current.get('name', '')
             if not song_name and 'file' in current:
                 # Extract from filename
                 file_path = current['file']
                 song_name = os.path.splitext(os.path.basename(file_path))[0]
-            
+
             if not song_name:
                 song_name = 'Unknown'
-            
+
+            logger.info(f"🎵 Now playing: {song_name}")
             return (True, f"Next: {song_name}")
 
     def previous(self) -> Tuple[bool, str]:
@@ -458,32 +478,52 @@ class MPDController:
             Tuple of (success, message)
         """
         with self._ensure_connection():
-            # Check current position
+            # Check current position and state
             status = self.client.status()
             current_pos = int(status.get('song', 0))
-            
+            current_state = status.get('state', 'stop')
+
+            # If stopped, start playing at current position instead of going previous
+            if current_state == 'stop':
+                try:
+                    self.client.play()
+                    time.sleep(0.1)
+                    current = self.client.currentsong()
+                    song_name = current.get('title') or current.get('file', 'Unknown')
+                    if song_name == 'Unknown' and 'file' in current:
+                        song_name = os.path.splitext(os.path.basename(current['file']))[0]
+                    return (True, f"Playing: {song_name}")
+                except Exception as e:
+                    logger.error(f"MPD previous() failed to start playback: {e}")
+                    return (False, "Could not start playback")
+
             # If at start of playlist, can't go previous
             if current_pos <= 0:
                 return (False, "Already at start of playlist")
-            
-            self.client.previous()
-            
+
+            try:
+                self.client.previous()
+            except Exception as e:
+                logger.error(f"MPD previous() failed: {e}")
+                return (False, f"Could not go to previous: {e}")
+
             # Wait a moment for MPD to process
             time.sleep(0.1)
-            
+
             # Get new status
             new_status = self.client.status()
             current = self.client.currentsong()
-            
+
             # Check if actually playing
             if new_status.get('state') == 'stop':
                 return (False, "Previous song unavailable or unplayable")
-            
+
             song_name = current.get('title') or current.get('file', 'Unknown')
             if song_name == 'Unknown' and 'file' in current:
                 # Try to extract name from filename
                 song_name = os.path.splitext(os.path.basename(current['file']))[0]
-            
+
+            logger.info(f"🎵 Now playing: {song_name}")
             return (True, f"Previous: {song_name}")
 
     def volume_up(self, amount: int = 10) -> Tuple[bool, str]:
@@ -641,7 +681,7 @@ class MPDController:
                 self.client.clear()
                 self.client.load('favorites')
                 self.client.play()
-                logger.info("Playing favorites playlist")
+                logger.info("⭐ Playing favorites playlist")
                 return (True, "Playing your favorites")
             except Exception as e:
                 logger.error(f"Failed to play favorites: {e}")
@@ -667,7 +707,7 @@ class MPDController:
                 self.client.playlistadd('favorites', file_path)
 
                 song_name = current.get('title', os.path.basename(file_path))
-                logger.info(f"Added to favorites: {song_name}")
+                logger.info(f"⭐ Added to favorites: {song_name}")
                 return (True, f"Added {song_name} to favorites")
 
             except Exception as e:
@@ -774,7 +814,7 @@ class MPDController:
                 else:
                     return (False, f"Unknown repeat mode: {mode}")
 
-                logger.info(f"Repeat mode set: {mode}")
+                logger.info(f"🔁 Repeat mode: {mode}")
                 return (True, msg)
 
             except Exception as e:
@@ -798,7 +838,7 @@ class MPDController:
                 self.client.random(1 if new_shuffle else 0)
 
                 msg = "Shuffle on" if new_shuffle else "Shuffle off"
-                logger.info(f"Shuffle toggled: {new_shuffle}")
+                logger.info(f"🔀 Shuffle: {msg}")
                 return (True, msg)
 
             except Exception as e:
@@ -819,7 +859,7 @@ class MPDController:
             try:
                 self.client.random(1 if enabled else 0)
                 msg = "Shuffle on" if enabled else "Shuffle off"
-                logger.info(f"Shuffle set: {enabled}")
+                logger.info(f"🔀 Shuffle: {msg}")
                 return (True, msg)
 
             except Exception as e:

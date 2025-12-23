@@ -270,18 +270,22 @@ class CommandValidator:
         # Got match - MusicLibrary.search returns (file_path, confidence)
         best_match, confidence = result
 
+        # Strip .mp3 extension for cleaner TTS
+        import os
+        song_name = os.path.splitext(best_match)[0]
+
         # High confidence - confirm what we found
         if confidence >= 0.8:
             return ValidationResult.valid(
-                message=self._get_message('playing_song', song=best_match),
-                params={'query': best_match},
+                message=self._get_message('playing_song', song=song_name),
+                params={'matched_file': best_match, 'query': query},
                 confidence=confidence
             )
         else:
             # Lower confidence - express uncertainty
             return ValidationResult.valid(
-                message=self._get_message('playing_with_confidence', song=best_match),
-                params={'query': best_match},
+                message=self._get_message('playing_with_confidence', song=song_name),
+                params={'matched_file': best_match, 'query': query},
                 confidence=confidence
             )
 

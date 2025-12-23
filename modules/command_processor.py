@@ -320,9 +320,17 @@ class CommandProcessor:
 
             if intent_type == 'play_music':
                 # Validation already provided user feedback with catalog match
-                query = parameters.get('query')  # Validated query from validator
-                resolution = self.music_resolver.resolve(intent.raw_text, intent.language, query)
-                success, message, confidence = self.mpd_controller.play(resolution.query or None)
+                # Use the matched file directly (validator already searched the catalog)
+                matched_file = parameters.get('matched_file')
+                if matched_file:
+                    # Play the file that validator found (skip redundant search)
+                    success, message, confidence = self.mpd_controller.play(matched_file)
+                else:
+                    # Fallback: validator didn't provide matched file, search now
+                    query = parameters.get('query')
+                    resolution = self.music_resolver.resolve(intent.raw_text, intent.language, query)
+                    success, message, confidence = self.mpd_controller.play(resolution.query or None)
+
                 if success:
                     # Validation already spoke confirmation - no need for additional TTS
                     return ""

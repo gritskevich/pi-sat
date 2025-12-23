@@ -7,6 +7,7 @@ Follows KISS principle - minimal, elegant implementation.
 
 import subprocess
 import os
+import shutil
 from pathlib import Path
 from modules.logging_utils import setup_logger
 
@@ -71,14 +72,35 @@ class PiperTTS:
                 "TTS playback may fail. Use 'aplay -l' to list available devices."
             )
 
+    def _preprocess_text(self, text):
+        """
+        Preprocess text for more natural TTS.
+
+        Args:
+            text: Input text
+
+        Returns:
+            str: Preprocessed text with pauses
+        """
+        # Replace " - " (hyphen with spaces) with ", " for natural pause
+        # Example: "Louane - maman" → "Louane, maman"
+        text = text.replace(" - ", ", ")
+
+        # Replace standalone hyphens (less common)
+        text = text.replace("-", ", ")
+
+        return text
+
     def speak(self, text, volume=None):
         """
-        Generate speech and play via ALSA.
+        Generate speech and play via ALSA/PulseAudio.
+
+        SIMPLIFIED: Volume controlled by PulseAudio sink (pactl), not sox.
+        All audio plays at 100% software volume; master volume controls everything.
 
         Args:
             text: Text to speak
-            volume: Optional volume (0-100). If None, uses config.TTS_VOLUME.
-                    Uses aplay --volume for independent control (doesn't affect music).
+            volume: DEPRECATED - ignored. Use VolumeManager for volume control.
 
         Returns:
             bool: True if successful, False otherwise
@@ -87,25 +109,33 @@ class PiperTTS:
             logger.warning("Empty text provided to speak()")
             return False
 
+        # Preprocess text for better TTS
+        text = self._preprocess_text(text)
+
         try:
             logger.debug(f"Speaking: '{text}'")
 
-            # Determine target volume (0-100)
-            target_volume = volume
-            if target_volume is None:
-                import config
-                target_volume = config.TTS_VOLUME
+            # Use shell piping for playback.
+            # Pulse/pipewire: feed raw PCM directly to pw-play (NO volume scaling)
+            # ALSA: convert to WAV + resample via sox (NO volume scaling), then aplay
+            pw_play = None
+            if self.output_device in ("pulse", "pipewire"):
+                pw_play = shutil.which("pw-play")
 
-            # Convert TTS volume (0-100) to sox volume multiplier (0.0-1.0)
-            sox_volume = target_volume / 100.0
-
-            # Use shell piping with sox for volume control
-            # echo text | piper --output-raw | sox (raw→wav + volume) | aplay
-            # Note: sox vol provides independent control without affecting ALSA Master
-            cmd = f'''echo {subprocess.list2cmdline([text])} | \
+            if pw_play:
+                # Play at 100% (1.0), PulseAudio sink controls actual volume
+                player = f"pw-play --format s16 --rate 22050 --channels 1 --volume 1.0 -"
+                cmd = f'''echo {subprocess.list2cmdline([text])} | \
 {self.piper_binary} --model {subprocess.list2cmdline([str(self.model_path)])} --output-raw | \
-sox -t raw -r 22050 -e signed -b 16 -c 1 - -t wav - vol {sox_volume} | \
-aplay -D {self.output_device} -q'''
+{player}'''
+            else:
+                # Use sox to resample to stable 48k stereo (NO volume scaling)
+                sox_out = "-t wav -r 48000 -c 2 -"
+                player = f"aplay -D {self.output_device} -q"
+                cmd = f'''echo {subprocess.list2cmdline([text])} | \
+{self.piper_binary} --model {subprocess.list2cmdline([str(self.model_path)])} --output-raw | \
+sox -t raw -r 22050 -e signed -b 16 -c 1 - {sox_out} | \
+{player}'''
 
             result = subprocess.run(
                 cmd,

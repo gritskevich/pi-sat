@@ -10,7 +10,8 @@ def play_wake_sound():
     This allows recording to start immediately without waiting
     for the sound to finish playing.
 
-    Uses sox for independent volume control (doesn't affect music/TTS).
+    SIMPLIFIED: Volume controlled by PulseAudio sink (pactl), not sox.
+    All audio plays at 100%; master volume controls everything.
     """
     if not getattr(config, "PLAY_WAKE_SOUND", True):
         return
@@ -19,20 +20,15 @@ def play_wake_sound():
         return
     device = getattr(config, "OUTPUT_ALSA_DEVICE", None)
 
-    # Convert BEEP_VOLUME (0-100) to sox volume multiplier (0.0-1.0)
-    beep_volume_pct = getattr(config, "BEEP_VOLUME", 40)
-    sox_volume = beep_volume_pct / 100.0
-
-    # Use sox to apply volume, then pipe to aplay
-    # sox input.wav -t wav - vol X | aplay
-    cmd_parts = ["sox", path, "-t", "wav", "-", "vol", str(sox_volume), "|", "aplay"]
+    # Play at 100% volume (NO sox scaling), PulseAudio sink controls actual volume
+    cmd_parts = ["aplay"]
     if device:
         cmd_parts += ["-D", device]
-    cmd_parts.append("-q")
+    cmd_parts += ["-q", path]
 
     cmd = " ".join(cmd_parts)
     try:
-        # Use Popen with shell=True for pipe support (non-blocking)
+        # Use Popen for non-blocking playback
         subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
         pass

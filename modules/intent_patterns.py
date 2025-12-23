@@ -874,26 +874,14 @@ LANGUAGE_PATTERNS = {
 # Production intent scope: Essential commands for kids
 # Core playback + volume control + favorites
 ACTIVE_INTENTS = {
-    # Core playback
-    'play_music',
-    'play_favorites',
-    'pause',
-    'resume',
-    'stop',
-    'next',
-    'previous',
+    # Simplified intent set (only 4 intents)
+    'play_music',    # Play any music by name
+    'volume_up',     # Increase volume
+    'volume_down',   # Decrease volume
+    'stop',          # Stop playback
 
-    # Volume control
-    'volume_up',
-    'volume_down',
-    'set_volume',
-
-    # Favorites
-    'add_favorite',
-
-    # Advanced playback
-    'repeat_song',
-    'repeat_off',
-    'shuffle_on',
-    'shuffle_off',
+    # Note: Shuffle and repeat are enabled by default in config.py
+    # - DEFAULT_SHUFFLE_MODE = 'true'
+    # - DEFAULT_REPEAT_MODE = 'playlist'
+    # Continuous playback happens automatically
 }

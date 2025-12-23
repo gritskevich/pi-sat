@@ -648,6 +648,10 @@ class MusicLibrary:
         """Check if catalog is empty"""
         return len(self._catalog) == 0
 
+    def file_exists(self, file_path: str) -> bool:
+        """Check if file exists in catalog"""
+        return file_path in self._catalog
+
 
 def main():
     """Test music library"""

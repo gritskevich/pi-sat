@@ -93,7 +93,7 @@ def create_volume_manager(
     debug: bool = False
 ) -> VolumeManager:
     """
-    Create VolumeManager instance.
+    Create VolumeManager instance and initialize to default volume.
 
     Args:
         mpd_controller: Optional MPD controller (created if None)
@@ -105,7 +105,12 @@ def create_volume_manager(
     if mpd_controller is None:
         mpd_controller = create_mpd_controller(debug=debug)
 
-    return VolumeManager(mpd_controller=mpd_controller)
+    volume_manager = VolumeManager(mpd_controller=mpd_controller)
+
+    # Initialize to default volume on startup
+    volume_manager.initialize_default_volume(default_volume=getattr(config, "DEFAULT_VOLUME", 40))
+
+    return volume_manager
 
 
 def create_speech_recorder(debug: bool = False) -> SpeechRecorder:

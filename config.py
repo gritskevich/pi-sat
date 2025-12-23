@@ -13,7 +13,7 @@ CHANNELS = 1
 RATE = 48000
 SAMPLE_RATE = 16000
 INPUT_DEVICE_NAME = None  # use system default input device
-OUTPUT_ALSA_DEVICE = os.getenv('OUTPUT_ALSA_DEVICE', os.getenv('PIPER_OUTPUT_DEVICE', 'default'))  # ALSA device for beep/audio_player (aplay -D)
+OUTPUT_ALSA_DEVICE = os.getenv('OUTPUT_ALSA_DEVICE', os.getenv('PIPER_OUTPUT_DEVICE', 'pulse'))  # ALSA device for beep/audio_player (aplay -D)
 PLAY_WAKE_SOUND = True
 # Wake sound options:
 #   beep-short.wav = Short beep (100ms) - use with WAKE_SOUND_SKIP=0.0 (DEFAULT)
@@ -28,7 +28,7 @@ WAKE_SOUND_SKIP_SECONDS = float(os.getenv('WAKE_SOUND_SKIP', '0.0'))  # Seconds 
 # Wake word settings
 WAKE_WORD_MODELS = ['alexa_v0.1']
 INFERENCE_FRAMEWORK = 'tflite'  # tflite (faster on Linux) or onnx (broader compatibility)
-THRESHOLD = 0.5  # Detection threshold (0-1). Lower = more sensitive, higher = fewer false positives
+THRESHOLD = 0.3  # Detection threshold (0-1). Lower = more sensitive, higher = fewer false positives
 LOW_CONFIDENCE_THRESHOLD = 0.1  # Debug threshold for logging low-confidence detections
 WAKE_WORD_COOLDOWN = float(os.getenv('WAKE_WORD_COOLDOWN', '3.0'))  # Seconds to ignore new activations after one fires
 
@@ -72,7 +72,7 @@ PIPER_MODEL_PATH = os.getenv('PIPER_MODEL',
 PIPER_MODEL_PATH_FR = os.getenv('PIPER_MODEL_FR', f'{PROJECT_ROOT}/resources/voices/fr_FR-siwis-medium.onnx')
 PIPER_MODEL_PATH_EN = os.getenv('PIPER_MODEL_EN', f'{PROJECT_ROOT}/resources/voices/en_US-lessac-medium.onnx')
 PIPER_BINARY_PATH = os.getenv('PIPER_BINARY', '/usr/local/bin/piper')
-PIPER_OUTPUT_DEVICE = os.getenv('PIPER_OUTPUT_DEVICE', 'default')  # ALSA device for TTS playback
+PIPER_OUTPUT_DEVICE = os.getenv('PIPER_OUTPUT_DEVICE', 'pulse')  # ALSA device for TTS playback
 
 # LED Visual Feedback settings (NeoPixel/WS2812B)
 LED_ENABLED = os.getenv('LED_ENABLED', 'false').lower() == 'true'
@@ -90,15 +90,17 @@ BUTTON_LONG_PRESS_DURATION = float(os.getenv('BUTTON_LONG_PRESS_DURATION', '2.0'
 FUZZY_MATCH_THRESHOLD = int(os.getenv('FUZZY_MATCH_THRESHOLD', '35'))  # 0-100 (lowered for phonetic matching)
 FUZZY_USE_LEVENSHTEIN = os.getenv('FUZZY_USE_LEVENSHTEIN', 'true').lower() == 'true'
 
-# Volume Control settings
+# Volume Control settings (SIMPLIFIED - Single Master Volume via PulseAudio/PipeWire)
+# All audio (music, TTS, beep) uses the same PulseAudio sink volume via pactl
+# We do NOT touch ALSA PCM hardware volume (amixer confuses PipeWire session managers)
+# We ONLY control: MPD software volume (100% fixed) + PulseAudio sink (variable)
+MASTER_VOLUME = int(os.getenv('MASTER_VOLUME', '20'))  # Master volume on startup (0-100)
 VOLUME_STEP = int(os.getenv('VOLUME_STEP', '10'))  # Percentage (0-100) for volume up/down commands
 VOLUME_DUCK_LEVEL = int(os.getenv('VOLUME_DUCK_LEVEL', '5'))  # Duck music to X% while listening for voice (0% = mute)
 VOLUME_FADE_DURATION = float(os.getenv('VOLUME_FADE_DURATION', '30.0'))  # seconds for sleep timer fade
-TTS_VOLUME = int(os.getenv('TTS_VOLUME', '80'))  # TTS volume (0-100) - separate from music volume
-BEEP_VOLUME = int(os.getenv('BEEP_VOLUME', '40'))  # Wake sound volume (0-100) - independent of music/TTS
 
 # Kid Safety & Parental Control settings
-MAX_VOLUME = int(os.getenv('MAX_VOLUME', '80'))  # Maximum allowed volume (0-100) for kid safety
+MAX_VOLUME = int(os.getenv('MAX_VOLUME', '50'))  # Maximum allowed volume (0-100) for kid safety
 BEDTIME_ENABLED = os.getenv('BEDTIME_ENABLED', 'true').lower() == 'true'
 BEDTIME_START = os.getenv('BEDTIME_START', '20:00')  # Quiet time start (24h format: HH:MM) - default 8pm
 BEDTIME_END = os.getenv('BEDTIME_END', '08:00')  # Quiet time end (24h format: HH:MM) - default 8am
