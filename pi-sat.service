@@ -1,0 +1,33 @@
+[Unit]
+Description=Pi-Sat Voice-Controlled Music Player
+After=network.target sound.target mpd.service
+Wants=mpd.service
+
+[Service]
+Type=simple
+User=dmitry
+WorkingDirectory=/home/dmitry/pi-sat
+Environment="PATH=/home/dmitry/pi-sat/venv/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Use venv Python with unbuffered output for better logging
+ExecStart=/home/dmitry/pi-sat/venv/bin/python -u main.py
+
+# Automatic restart on crash
+Restart=always
+RestartSec=5
+
+# Graceful shutdown (CTRL+C equivalent)
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# Resource limits (optional kid-safety)
+# LimitNOFILE=1024
+# MemoryMax=512M
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pi-sat
+
+[Install]
+WantedBy=multi-user.target

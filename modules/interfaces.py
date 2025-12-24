@@ -252,22 +252,6 @@ class VolumeControl(Protocol):
         """Set music volume (0-100)"""
         ...
 
-    def get_tts_volume(self) -> Optional[int]:
-        """Get TTS volume (0-100)"""
-        ...
-
-    def set_tts_volume(self, volume: int) -> bool:
-        """Set TTS volume (0-100)"""
-        ...
-
-    def duck_music_volume(self, duck_to: int = 20) -> bool:
-        """Duck music volume for voice input"""
-        ...
-
-    def restore_music_volume(self) -> bool:
-        """Restore music volume after ducking"""
-        ...
-
     def music_volume_up(self, amount: int = 10) -> Tuple[bool, str]:
         """Increase music volume"""
         ...

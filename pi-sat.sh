@@ -465,6 +465,15 @@ clean() {
 }
 
 # Show help
+daemon() {
+    if [ "$EUID" -ne 0 ]; then
+        error "Daemon commands require sudo"
+        echo "Usage: sudo $0 daemon [install|uninstall|status]"
+        exit 1
+    fi
+    exec "$PROJECT_ROOT/install-daemon.sh" "$@"
+}
+
 help() {
     echo "Pi-Sat Voice Assistant Runner"
     echo ""
@@ -473,6 +482,7 @@ help() {
     echo "Commands:"
     echo "  install                    Install dependencies"
     echo "  activate                   Activate venv (source this script: 'source $0 activate')"
+    echo "  daemon [install|uninstall|status]  Manage systemd daemon (requires sudo)"
     echo "  test [test_name]          Run tests (all or specific)"
     echo "  run                       Start the orchestrator"
     echo "  run_debug                 Start the orchestrator in debug mode"
@@ -495,15 +505,17 @@ help() {
     echo ""
     echo "Examples:"
     echo "  $0 install                Install everything"
+    echo "  sudo $0 daemon install    Install as system service (auto-start on boot)"
     echo "  $0 test                   Run all tests"
     echo "  $0 test wake_word         Run specific test"
-    echo "  $0 test stt               Run STT tests"
-    echo "  $0 test microphone        Test microphone recording"
-    echo "  $0 run                    Start voice assistant"
+    echo "  $0 run                    Start voice assistant (interactive)"
     echo "  $0 run_debug              Start with audio playback"
-    echo "  $0 run_live               Start with LIVE DEBUG mode"
-    echo "  $0 test_wake_stt          Test wake word + STT feedback loop"
-    echo "  $0 test_mic               Test microphone recording"
+    echo ""
+    echo "Daemon Mode (Production):"
+    echo "  sudo $0 daemon install           Install as system service"
+    echo "  sudo systemctl status pi-sat     Check daemon status"
+    echo "  sudo journalctl -u pi-sat -f     View live logs"
+    echo "  See DAEMON.md for complete guide"
 }
 
 # Main command dispatcher
@@ -517,6 +529,10 @@ case "${1:-help}" in
         ;;
     "activate")
         activate
+        ;;
+    "daemon")
+        shift
+        daemon "$@"
         ;;
     "test")
         test "$2"

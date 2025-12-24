@@ -4,8 +4,6 @@ Volume Manager - SIMPLIFIED single master volume control
 Handles:
 - Single master volume via PulseAudio/PipeWire sink (pactl)
 - All audio (music, TTS, beep) uses the same volume
-- Volume ducking for music during voice input
-- Volume restoration after voice input
 
 Best Practice (Raspberry Pi 5 + PipeWire):
 - ALSA PCM hardware: Leave at current level (do NOT touch via amixer)
@@ -40,8 +38,6 @@ class VolumeManager:
             mpd_controller: Optional MPDController instance (for setting MPD to 100%)
         """
         self.mpd_controller = mpd_controller
-        self._original_volume = None
-        self._ducking_active = False
 
         # Cached master volume (0-100)
         self.master_volume = None
@@ -125,23 +121,19 @@ class VolumeManager:
         """
         Get current MASTER volume from PulseAudio/PipeWire sink (0-100).
 
-        Uses cached value during ducking to avoid race conditions.
+        Uses cached value when available for performance.
 
         Returns:
             Volume percentage or None if unavailable
         """
-        # If ducking, return the stored volume (more reliable)
-        if self._ducking_active and self._original_volume is not None:
-            return self._original_volume
-
-        # If we have a cached volume and we're not ducking, use it
+        # Use cached volume if available
         if self.master_volume is not None:
             return self.master_volume
 
         # Otherwise read from PulseAudio/PipeWire sink
         if self._pulse_available:
             vol = self._get_pulse_volume()
-            if vol is not None and not self._ducking_active:
+            if vol is not None:
                 self.master_volume = vol
             return vol
 
@@ -169,72 +161,7 @@ class VolumeManager:
 
         logger.warning("PulseAudio/PipeWire not available for volume control")
         return False
-    
-    def duck_music_volume(self, duck_to: int = 5) -> bool:
-        """
-        Duck MASTER volume for voice input (affects all audio).
 
-        Args:
-            duck_to: Target volume percentage during ducking
-
-        Returns:
-            True if successful
-        """
-        if self._ducking_active:
-            logger.debug("Volume already ducked")
-            return True
-
-        # Use cached volume if available
-        current = self.master_volume if self.master_volume is not None else self.get_master_volume()
-        if current is None:
-            # Fall back to a default if we really can't determine volume
-            logger.warning("Cannot determine current volume, assuming 50%")
-            current = 50
-
-        self._original_volume = current
-        success = self.set_master_volume(duck_to)
-
-        if success:
-            self._ducking_active = True
-            logger.info(f"🔉 MASTER volume ducked: {current}% → {duck_to}%")
-        else:
-            logger.error(f"Failed to duck volume from {current}% to {duck_to}%")
-
-        return success
-
-    def restore_music_volume(self) -> bool:
-        """
-        Restore MASTER volume after voice input.
-
-        Returns:
-            True if successful
-        """
-        if not self._ducking_active:
-            logger.debug("Volume not ducked, nothing to restore")
-            return True
-
-        if self._original_volume is None:
-            logger.warning("No original volume to restore")
-            self._ducking_active = False
-            return False
-
-        target_volume = self._original_volume
-        success = self.set_master_volume(target_volume)
-
-        if success:
-            # Ensure the restored volume is cached before clearing the ducking state
-            self.master_volume = target_volume
-            logger.info(f"🔊 MASTER volume restored: {target_volume}%")
-            self._ducking_active = False
-            self._original_volume = None
-        else:
-            logger.error(f"Failed to restore volume to {target_volume}%")
-            # Even on failure, clear ducking state to prevent stuck state
-            self._ducking_active = False
-            self._original_volume = None
-
-        return success
-    
     def _get_pulse_volume(self) -> Optional[int]:
         """Get PulseAudio/PipeWire sink volume percentage"""
         try:
@@ -279,6 +206,34 @@ class VolumeManager:
             logger.debug(f"Failed to set PulseAudio volume: {e}")
             return False
     
+    def _adjust_volume(self, amount: int, direction: str) -> Tuple[bool, str]:
+        """
+        Helper to adjust volume up or down.
+
+        Args:
+            amount: Volume adjustment amount
+            direction: 'up' or 'down'
+
+        Returns:
+            Tuple of (success, message)
+        """
+        current = self.master_volume if self.master_volume is not None else self.get_master_volume()
+        if current is None:
+            return (False, "Volume control unavailable")
+
+        if direction == 'up':
+            max_vol = min(100, getattr(config, "MAX_VOLUME", 100))
+            new_volume = min(max_vol, current + amount)
+        else:  # down
+            new_volume = max(0, current - amount)
+
+        success = self.set_master_volume(new_volume)
+        if success:
+            self.master_volume = new_volume
+            logger.info(f"📊 Volume {direction}: {current}% → {new_volume}%")
+            return (True, f"Volume {new_volume}%")
+        return (False, f"Failed to {'increase' if direction == 'up' else 'decrease'} volume")
+
     def music_volume_up(self, amount: int = 10) -> Tuple[bool, str]:
         """
         Increase MASTER volume.
@@ -289,30 +244,7 @@ class VolumeManager:
         Returns:
             Tuple of (success, message)
         """
-        # If we're ducking during a voice command, adjust the *restore target* volume
-        # instead of the currently-ducked output volume.
-        if self._ducking_active and self._original_volume is not None:
-            max_vol = min(100, getattr(config, "MAX_VOLUME", 100))
-            new_volume = min(max_vol, self._original_volume + amount)
-            old_volume = self._original_volume
-            self._original_volume = new_volume
-            self.master_volume = new_volume  # Update cache
-            logger.info(f"📊 Volume up (will apply after restore): {old_volume}% → {new_volume}%")
-            return (True, f"Volume {new_volume}%")
-
-        current = self.master_volume if self.master_volume is not None else self.get_master_volume()
-        if current is None:
-            return (False, "Volume control unavailable")
-
-        max_vol = min(100, getattr(config, "MAX_VOLUME", 100))
-        new_volume = min(max_vol, current + amount)
-        success = self.set_master_volume(new_volume)
-
-        if success:
-            self.master_volume = new_volume  # Update cache
-            logger.info(f"📊 Volume up: {current}% → {new_volume}%")
-            return (True, f"Volume {new_volume}%")
-        return (False, "Failed to increase volume")
+        return self._adjust_volume(amount, 'up')
 
     def music_volume_down(self, amount: int = 10) -> Tuple[bool, str]:
         """
@@ -324,25 +256,4 @@ class VolumeManager:
         Returns:
             Tuple of (success, message)
         """
-        # If we're ducking during a voice command, adjust the *restore target* volume
-        # instead of the currently-ducked output volume.
-        if self._ducking_active and self._original_volume is not None:
-            new_volume = max(0, self._original_volume - amount)
-            old_volume = self._original_volume
-            self._original_volume = new_volume
-            self.master_volume = new_volume  # Update cache
-            logger.info(f"📊 Volume down (will apply after restore): {old_volume}% → {new_volume}%")
-            return (True, f"Volume {new_volume}%")
-
-        current = self.master_volume if self.master_volume is not None else self.get_master_volume()
-        if current is None:
-            return (False, "Volume control unavailable")
-
-        new_volume = max(0, current - amount)
-        success = self.set_master_volume(new_volume)
-
-        if success:
-            self.master_volume = new_volume  # Update cache
-            logger.info(f"📊 Volume down: {current}% → {new_volume}%")
-            return (True, f"Volume {new_volume}%")
-        return (False, "Failed to decrease volume")
+        return self._adjust_volume(amount, 'down')

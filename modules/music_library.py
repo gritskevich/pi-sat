@@ -425,40 +425,46 @@ class MusicLibrary:
 
         return (best_file_path, confidence)
 
-    def _get_phonetic_variant(self, variant: str) -> str:
-        if not self.phonetic_enabled or not self._phonetic_matcher:
-            return ""
-        if not self._phonetic_allowed(variant):
-            return ""
-        norm_variant = self._normalize_variant(variant)
-        cached = self._phonetic_cache.get(norm_variant)
-        if cached is not None:
-            return cached
-        try:
-            encoded = self._phonetic_matcher.encode(norm_variant or variant)
-            phonetic_str = '|'.join(sorted(encoded)) if isinstance(encoded, tuple) else str(encoded)
-        except Exception:
-            phonetic_str = ""
-        self._phonetic_cache[norm_variant] = phonetic_str
-        return phonetic_str
+    def _encode_phonetic(self, text: str, cache: dict, log_errors: bool = False) -> str:
+        """
+        Encode text phonetically with caching.
 
-    def _get_query_phonetic(self, query: str) -> str:
+        Args:
+            text: Text to encode
+            cache: Cache dictionary to use
+            log_errors: Whether to log encoding errors
+
+        Returns:
+            Phonetic encoding string
+        """
         if not self.phonetic_enabled or not self._phonetic_matcher:
             return ""
-        if not self._phonetic_allowed(query):
+        if not self._phonetic_allowed(text):
             return ""
-        norm_query = self._normalize_variant(query)
-        cached = self._query_phonetic_cache.get(norm_query)
+
+        normalized = self._normalize_variant(text)
+        cached = cache.get(normalized)
         if cached is not None:
             return cached
+
         try:
-            encoded = self._phonetic_matcher.encode(norm_query or query)
+            encoded = self._phonetic_matcher.encode(normalized or text)
             phonetic_str = '|'.join(sorted(encoded)) if isinstance(encoded, tuple) else str(encoded)
         except Exception as e:
-            logger.warning(f"Phonetic encoding failed for '{query}': {e}")
+            if log_errors:
+                logger.warning(f"Phonetic encoding failed for '{text}': {e}")
             phonetic_str = ""
-        self._query_phonetic_cache[norm_query] = phonetic_str
+
+        cache[normalized] = phonetic_str
         return phonetic_str
+
+    def _get_phonetic_variant(self, variant: str) -> str:
+        """Get phonetic encoding for a variant (from catalog)."""
+        return self._encode_phonetic(variant, self._phonetic_cache, log_errors=False)
+
+    def _get_query_phonetic(self, query: str) -> str:
+        """Get phonetic encoding for a query (from user input)."""
+        return self._encode_phonetic(query, self._query_phonetic_cache, log_errors=True)
 
     def _phonetic_allowed(self, text: str) -> bool:
         norm = unicodedata.normalize('NFKD', text.lower())

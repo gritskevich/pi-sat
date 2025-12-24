@@ -103,6 +103,7 @@ class MPDController:
         # Sleep timer state
         self._sleep_timer_thread = None
         self._sleep_timer_cancel = threading.Event()
+        self._sleep_timer_lock = threading.Lock()  # Thread-safe sleep timer management
 
         # Volume ducking state
         self._original_volume = None
@@ -172,18 +173,15 @@ class MPDController:
 
         Automatically reconnects if connection lost.
         """
+        if not self._connected:
+            self.connect()
         try:
-            if not self._connected:
-                self.connect()
             yield
         except (MPDConnectionError, BrokenPipeError, ConnectionResetError) as e:
             logger.warning(f"MPD connection lost: {e}. Reconnecting...")
             self._connected = False
             self.connect()
-            yield
-        except Exception as e:
-            logger.error(f"MPD operation failed: {e}")
-            raise
+            raise  # Let caller retry if needed
 
     def _ensure_queue_seeded(self, min_songs: int = 2) -> bool:
         """
@@ -369,29 +367,47 @@ class MPDController:
 
     def pause(self) -> Tuple[bool, str]:
         """
-        Pause playback.
+        Pause playback (safe even if nothing is playing).
 
         Returns:
             Tuple of (success, message)
         """
-        with self._ensure_connection():
-            self.client.pause(1)
-            status = self.get_status()
-            logger.info(f"⏸️  Paused: {status['song']}")
-            return (True, "Paused")
+        try:
+            with self._ensure_connection():
+                status = self.get_status()
+                if status['state'] in ('play', 'pause'):
+                    self.client.pause(1)
+                    song = status.get('song', 'unknown')
+                    logger.info(f"⏸️  Paused: {song}")
+                    return (True, f"Paused: {song}")
+                else:
+                    logger.info("⏸️  Nothing playing, pause ignored")
+                    return (True, "Nothing to pause")
+        except Exception as e:
+            logger.warning(f"⏸️  Pause failed (continuing anyway): {e}")
+            return (True, "Paused")  # Return success anyway - pause is best-effort
 
     def resume(self) -> Tuple[bool, str]:
         """
-        Resume playback.
+        Resume playback (safe even if nothing was paused).
 
         Returns:
             Tuple of (success, message)
         """
-        with self._ensure_connection():
-            self.client.pause(0)
-            status = self.get_status()
-            logger.info(f"▶️  Resumed: {status['song']}")
-            return (True, f"Resuming {status['song']}")
+        try:
+            with self._ensure_connection():
+                status = self.get_status()
+                if status['state'] == 'pause':
+                    self.client.pause(0)
+                    song = status.get('song', 'music')
+                    logger.info(f"▶️  Resumed: {song}")
+                    return (True, f"Resuming {song}")
+                else:
+                    logger.debug("Nothing paused, resume ignored")
+                    return (True, "Nothing to resume")
+        except Exception as e:
+            logger.debug(f"Resume failed (not critical): {e}")
+            return (True, "Resumed")  # Return success anyway - resume is best-effort
 
     def stop(self) -> Tuple[bool, str]:
         """
@@ -725,11 +741,12 @@ class MPDController:
             Tuple of (success, message)
         """
         # Cancel existing timer
-        if self._sleep_timer_thread and self._sleep_timer_thread.is_alive():
-            self._sleep_timer_cancel.set()
-            self._sleep_timer_thread.join(timeout=1)
+        with self._sleep_timer_lock:
+            if self._sleep_timer_thread and self._sleep_timer_thread.is_alive():
+                self._sleep_timer_cancel.set()
+                self._sleep_timer_thread.join(timeout=1)
 
-        self._sleep_timer_cancel.clear()
+            self._sleep_timer_cancel.clear()
 
         def sleep_timer_worker(duration_minutes):
             """Worker thread for sleep timer"""
@@ -762,13 +779,14 @@ class MPDController:
             except Exception as e:
                 logger.error(f"Sleep timer error: {e}")
 
-        # Start timer thread
-        self._sleep_timer_thread = threading.Thread(
-            target=sleep_timer_worker,
-            args=(minutes,),
-            daemon=True
-        )
-        self._sleep_timer_thread.start()
+        # Start timer thread (protect against concurrent set_sleep_timer calls)
+        with self._sleep_timer_lock:
+            self._sleep_timer_thread = threading.Thread(
+                target=sleep_timer_worker,
+                args=(minutes,),
+                daemon=True
+            )
+            self._sleep_timer_thread.start()
 
         logger.info(f"Sleep timer set: {minutes} minutes")
         return (True, f"I'll stop playing in {minutes} minutes")
@@ -780,12 +798,13 @@ class MPDController:
         Returns:
             True if timer was cancelled
         """
-        if self._sleep_timer_thread and self._sleep_timer_thread.is_alive():
-            self._sleep_timer_cancel.set()
-            self._sleep_timer_thread.join(timeout=1)
-            logger.info("Sleep timer cancelled")
-            return True
-        return False
+        with self._sleep_timer_lock:
+            if self._sleep_timer_thread and self._sleep_timer_thread.is_alive():
+                self._sleep_timer_cancel.set()
+                self._sleep_timer_thread.join(timeout=1)
+                logger.info("Sleep timer cancelled")
+                return True
+            return False
 
     def set_repeat(self, mode: str) -> Tuple[bool, str]:
         """

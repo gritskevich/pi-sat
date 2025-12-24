@@ -37,7 +37,8 @@ class SpeechRecorder:
 
         self.p = pyaudio.PyAudio() if debug else None
         
-    def process_audio_chunks(self, audio, sample_rate):
+    def process_audio_chunks(self, audio, sample_rate: int) -> bytes:
+        """Process audio chunks with VAD and pause detection."""
         if sample_rate != 16000:
             raise ValueError("Audio must be 16kHz")
         
@@ -73,7 +74,10 @@ class SpeechRecorder:
             
             try:
                 is_speech = self.vad.is_speech(frame_bytes, sample_rate)
-            except:
+            except (ValueError, TypeError, Exception) as e:
+                # Invalid frame size/rate or VAD error - treat as non-speech
+                if self.debug:
+                    log_debug(self.logger, f"VAD error: {e}")
                 is_speech = False
             
             if is_speech:
@@ -101,7 +105,8 @@ class SpeechRecorder:
             
             try:
                 is_speech = self.vad.is_speech(frame_bytes, 16000)
-            except:
+            except (ValueError, TypeError, Exception) as e:
+                # Invalid frame or VAD error - treat as non-speech
                 is_speech = False
             
             if is_speech:
@@ -137,11 +142,13 @@ class SpeechRecorder:
             stream.stop_stream()
             stream.close()
     
-    def start_recording(self):
+    def start_recording(self) -> None:
+        """Start recording audio frames."""
         self.recording_buffer = []
         self.is_recording = True
-    
-    def stop_recording(self):
+
+    def stop_recording(self) -> bytes:
+        """Stop recording and return recorded audio."""
         self.is_recording = False
         if self.recording_buffer:
             result = np.concatenate(self.recording_buffer).tobytes()
@@ -158,7 +165,8 @@ class SpeechRecorder:
         
         try:
             is_speech = self.vad.is_speech(frame_bytes, 16000)
-        except:
+        except (ValueError, TypeError, Exception) as e:
+            # Invalid frame or VAD error - treat as non-speech
             is_speech = False
         
         if is_speech:
@@ -297,7 +305,8 @@ class SpeechRecorder:
                 # WebRTC VAD (16k, 10/20/30ms frames only)
                 try:
                     is_speech_vad = self.vad.is_speech(frame_16k.tobytes(), out_rate)
-                except Exception:
+                except (ValueError, TypeError, Exception) as e:
+                    # Invalid frame size/rate or VAD error - treat as non-speech
                     is_speech_vad = False
 
                 is_speech_energy = energy > speech_threshold
@@ -407,7 +416,8 @@ class SpeechRecorder:
                 # Check for silence using VAD
                 try:
                     is_speech = self.vad.is_speech(data, rate)
-                except:
+                except (ValueError, TypeError, Exception) as e:
+                    # Invalid frame or VAD error - treat as non-speech
                     is_speech = False
                 
                 if is_speech:

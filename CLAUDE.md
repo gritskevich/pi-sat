@@ -43,8 +43,13 @@ pytest tests/ -q
 
 - Lifecycle: `modules/orchestrator.py`
 - Wake word: `modules/wake_word_listener.py`
+  - **CRITICAL**: Stream is recreated after each command cycle to prevent openWakeWord model state corruption
+  - openWakeWord requires continuous audio feeding; stopping for 10s (command recording) breaks it
+  - Battle-tested solution: close/reopen PyAudio stream after command processing
 - Wake beep: `modules/audio_player.py` + `resources/beep-*.wav`
 - Pipeline: `modules/command_processor.py`
+  - Pauses MPD playback before recording (music interferes with STT)
+  - Resumes MPD playback after TTS response
 - Recording/VAD: `modules/speech_recorder.py`
 - STT: `modules/hailo_stt.py` (Hailo pipeline under `hailo_examples/speech_recognition/`)
 - Intent matching: `modules/intent_engine.py` (`ACTIVE_INTENTS`, `LANGUAGE_PATTERNS`)
@@ -52,7 +57,7 @@ pytest tests/ -q
 - Music query + matching: `modules/music_resolver.py`, `modules/music_library.py`
 - Playback: `modules/mpd_controller.py`
 - TTS: `modules/piper_tts.py`
-- Volume/ducking: `modules/volume_manager.py`
+- Volume: `modules/volume_manager.py`
 
 ## Config (single source of truth: `config.py`)
 
@@ -68,9 +73,10 @@ Keep docs light; read `config.py` when changing behavior. Key knobs:
   - `VAD_SPEECH_MULTIPLIER`, `VAD_SILENCE_DURATION`, `VAD_MIN_SPEECH_DURATION`
 - Audio:
   - `PIPER_OUTPUT_DEVICE`, `OUTPUT_ALSA_DEVICE`
-  - `WAKE_SOUND_PATH`, `WAKE_SOUND_SKIP_SECONDS`, `BEEP_VOLUME`, `TTS_VOLUME`
-- Volume safety:
-  - `VOLUME_DUCK_LEVEL`, `MAX_VOLUME`
+  - `WAKE_SOUND_PATH`, `WAKE_SOUND_SKIP_SECONDS`
+- Volume:
+  - `MASTER_VOLUME` (startup volume: 15%), `VOLUME_STEP` (5% per command)
+  - `MAX_VOLUME` (kid safety limit: 50%)
 
 ## Common Changes
 

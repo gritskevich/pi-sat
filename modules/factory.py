@@ -107,8 +107,8 @@ def create_volume_manager(
 
     volume_manager = VolumeManager(mpd_controller=mpd_controller)
 
-    # Initialize to default volume on startup
-    volume_manager.initialize_default_volume(default_volume=getattr(config, "DEFAULT_VOLUME", 40))
+    # Initialize to default volume on startup (from config.MASTER_VOLUME)
+    volume_manager.initialize_default_volume(default_volume=config.MASTER_VOLUME)
 
     return volume_manager
 

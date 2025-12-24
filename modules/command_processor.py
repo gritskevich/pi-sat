@@ -105,21 +105,23 @@ class CommandProcessor:
             skip_initial_seconds: Seconds to skip at start of recording (e.g., 0.7 for wake sound)
 
         Pipeline steps:
-        1. Duck music volume for better voice input
+        1. Pause music playback for better voice input
         2. Record audio with VAD silence detection
         3. Transcribe audio to text with STT
         4. Classify text into intent
         5. Validate command (catalog check, parameter validation, French TTS feedback)
         6. Execute intent (MPD control) - silent on success
         7. Speak execution response (only on errors or important info)
-        8. Restore music volume
+        8. Resume music playback
 
         Returns:
             True if command processed successfully, False otherwise
         """
-        # Duck music volume before recording
-        duck_level = config.VOLUME_DUCK_LEVEL
-        self.volume_manager.duck_music_volume(duck_to=duck_level)
+        # Pause music playback before recording (best-effort, won't fail)
+        try:
+            self.mpd_controller.pause()
+        except Exception as e:
+            log_debug(self.logger, f"Pause failed (continuing anyway): {e}")
 
         try:
             # Step 1: Record audio
@@ -192,8 +194,11 @@ class CommandProcessor:
             return False
 
         finally:
-            # Always restore music volume (even on errors)
-            self.volume_manager.restore_music_volume()
+            # Always resume music playback (even on errors, best-effort)
+            try:
+                self.mpd_controller.resume()
+            except Exception as e:
+                log_debug(self.logger, f"Resume failed (not critical): {e}")
 
     def _record_command(self, stream=None, input_rate=None, skip_initial_seconds=0.0) -> bytes:
         """

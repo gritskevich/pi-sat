@@ -121,27 +121,14 @@ pactl set-sink-volume @DEFAULT_SINK@ 20%
 pactl unload-module module-stream-restore
 ```
 
-## Ducking (music during voice input)
-
-- `VOLUME_DUCK_LEVEL` in `config.py` sets the master volume during recording
-  - Default: **5%** (quiet but not silent)
-  - If you get feedback/false wake triggers: set to **0%** (mute)
-
-```bash
-# Temporary override
-export VOLUME_DUCK_LEVEL=0
-./pi-sat.sh run
-```
-
 ## Config Reference
 
 ### Volume Settings (config.py)
 
 ```python
 # Single master volume for ALL audio (music, TTS, beep)
-MASTER_VOLUME = 20  # Default startup volume (0-100)
-VOLUME_STEP = 10    # Volume up/down increment
-VOLUME_DUCK_LEVEL = 5  # Volume during voice recording (0-100)
+MASTER_VOLUME = 15  # Default startup volume (0-100)
+VOLUME_STEP = 5     # Volume up/down increment
 MAX_VOLUME = 50     # Kid-safety volume limit (0-100)
 ```
 
@@ -209,7 +196,7 @@ If you're not using PulseAudio/PipeWire (unusual), you can point directly to ALS
 
 - **Double wake triggers**
   - Increase `THRESHOLD` and/or `WAKE_WORD_COOLDOWN` in `config.py`
-  - Lower `VOLUME_DUCK_LEVEL` (reduce music feedback into mic)
+  - Music is now paused during voice input (eliminates feedback)
   - Reduce mic gain
 
 - **Everything is quiet despite high volume settings**

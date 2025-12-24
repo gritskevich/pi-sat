@@ -16,6 +16,10 @@ except ModuleNotFoundError:  # optional dependency; required to instantiate
     Model = None
     openwakeword_utils = None
 
+# Constants for model state reset
+MODEL_RESET_SILENCE_CHUNKS = 25  # Number of audio chunks for silence buffer
+MODEL_RESET_ITERATIONS = 2  # Number of prediction passes to reset model state
+
 class WakeWordListener:
     def __init__(self, debug=False):
         if Model is None or openwakeword_utils is None:
@@ -45,6 +49,8 @@ class WakeWordListener:
         self.debug = debug
         self.running = True
         self.logger = setup_logger(__name__, debug=debug)
+        self._heartbeat_counter = 0  # For periodic health check logs
+        self._last_model_reset = time.time()  # Periodic model state cleanup
 
     def _flush_stream_buffer(self):
         """Drop any buffered audio collected while command processing blocked detection."""
@@ -59,8 +65,9 @@ class WakeWordListener:
             pass
         
     def reset_model_state(self):
-        silence = np.zeros(config.CHUNK * 25, dtype=np.int16)
-        for _ in range(2):
+        """Reset wake word model state by feeding it silence."""
+        silence = np.zeros(config.CHUNK * MODEL_RESET_SILENCE_CHUNKS, dtype=np.int16)
+        for _ in range(MODEL_RESET_ITERATIONS):
             self.model.predict(silence)
         
     def start_listening(self):
@@ -102,9 +109,19 @@ class WakeWordListener:
             time.sleep(0.1)
         
         log_info(self.logger, "Wake word listener started...")
-        
+
         while self.running:
             try:
+                # Periodic health check log (every ~60 seconds)
+                self._heartbeat_counter += 1
+                if self._heartbeat_counter % 600 == 0:
+                    log_debug(self.logger, f"Wake word listener alive (iterations: {self._heartbeat_counter})")
+                
+                # Periodic model state reset (every 60s) to prevent VAD/model drift during music
+                if time.time() - self._last_model_reset > 60.0:
+                    self.reset_model_state()
+                    self._last_model_reset = time.time()
+
                 data = self.stream.read(config.CHUNK, exception_on_overflow=False)
                 audio = np.frombuffer(data, dtype=np.int16)
 
@@ -128,7 +145,14 @@ class WakeWordListener:
                     frame = self._resample_buf[:frame_size]
                     self._resample_buf = self._resample_buf[frame_size:]
 
-                    prediction = self.model.predict(frame)
+                    try:
+                        prediction = self.model.predict(frame)
+                    except Exception as pred_error:
+                        log_warning(self.logger, f"Model prediction error: {pred_error}")
+                        # Reset and skip this frame
+                        self.reset_model_state()
+                        continue
+
                     for wake_word, confidence in prediction.items():
                         if confidence > config.THRESHOLD:
                             current_time = time.time()
@@ -137,28 +161,71 @@ class WakeWordListener:
                                 log_success(self.logger, f"🔔 WAKE WORD: {wake_word} ({confidence:.2f})")
                                 # Play confirmation sound (non-blocking)
                                 play_wake_sound()
-                                # Reset model state before notification
-                                self.reset_model_state()
-                                # Notify orchestrator with stream context (this will block until command processing completes)
-                                # Pass stream and input rate for immediate recording (eliminates stream creation latency)
-                                self._notify_orchestrator(stream=self.stream, input_rate=self._input_rate)
-                                # Soft cooldown starts AFTER command processing (prevents immediate re-trigger from buffered audio)
-                                self._flush_stream_buffer()
-                                self._resample_buf = np.zeros(0, dtype=np.int16)
-                                self.reset_model_state()
+
+                                # CRITICAL: Command processing will use the stream for up to 10s,
+                                # which corrupts openWakeWord's internal state. Battle-tested solution:
+                                # Recreate the stream after command processing (simple, reliable).
+
+                                # Notify orchestrator with stream context (BLOCKS until command completes)
+                                try:
+                                    self._notify_orchestrator(stream=self.stream, input_rate=self._input_rate)
+                                except Exception as notify_error:
+                                    log_error(self.logger, f"Command processing error: {notify_error}")
+
+                                # STREAM RECREATION: Close old stream, open fresh one (eliminates state corruption)
+                                log_debug(self.logger, "Recreating audio stream for clean state...")
+                                try:
+                                    # Close old stream
+                                    if self.stream:
+                                        self.stream.stop_stream()
+                                        self.stream.close()
+
+                                    # Brief pause for hardware cleanup
+                                    time.sleep(0.1)
+
+                                    # Open fresh stream (same config as start_listening)
+                                    self.stream = self.p.open(
+                                        format=getattr(pyaudio, config.FORMAT),
+                                        channels=config.CHANNELS,
+                                        rate=self._input_rate,
+                                        input=True,
+                                        input_device_index=None,
+                                        frames_per_buffer=config.CHUNK
+                                    )
+
+                                    # Reset all state with fresh stream
+                                    self._resample_buf = np.zeros(0, dtype=np.int16)
+                                    self.reset_model_state()
+
+                                    log_debug(self.logger, "Audio stream recreated successfully")
+                                except Exception as stream_error:
+                                    log_error(self.logger, f"Stream recreation failed: {stream_error}")
+                                    # If stream recreation fails, we must exit the loop
+                                    break
+
+                                # Cooldown timestamp (prevents duplicate detections)
                                 self.last_detection_time = time.time()
-                                # Note: timestamp-based cooldown prevents duplicate detections
                         elif self.debug and confidence > config.LOW_CONFIDENCE_THRESHOLD:
                             log_debug(self.logger, f"👂 Low confidence: {wake_word} ({confidence:.2f})")
-                    # small sleep to yield CPU in tight loop
-                    time.sleep(0.005)
+                
+                # Small sleep to yield CPU (once per stream read, not per frame)
+                time.sleep(0.001)
                             
             except KeyboardInterrupt:
                 break
             except Exception as e:
                 log_error(self.logger, f"Wake word listener error: {e}")
-                break
-                
+                # Don't break - try to recover and keep listening
+                try:
+                    # Reset buffers and model state to recover
+                    self._resample_buf = np.zeros(0, dtype=np.int16)
+                    self.reset_model_state()
+                    log_warning(self.logger, "Attempting to recover wake word detection...")
+                    time.sleep(0.5)  # Brief pause before retrying
+                except Exception as recovery_error:
+                    log_error(self.logger, f"Recovery failed: {recovery_error}")
+                    break  # Only break if recovery itself fails
+
         self.stop_listening()
     
     def _notify_orchestrator(self, stream=None, input_rate=None):

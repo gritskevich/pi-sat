@@ -3,8 +3,10 @@ import os
 # Project root directory (used for resource paths)
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
-# elevenlabs
-ELEVENLABS_API_KEY = "sk_5d91289913144262de023ad7c7a4af08ff625bf49c86ea9f"
+# ElevenLabs TTS (only used for test generation scripts, NOT runtime)
+# SECURITY: Never commit API keys to source control
+# Set via environment: export ELEVENLABS_API_KEY='your_key_here'
+ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY', None)
 
 # Audio settings
 CHUNK = 320
@@ -28,9 +30,9 @@ WAKE_SOUND_SKIP_SECONDS = float(os.getenv('WAKE_SOUND_SKIP', '0.0'))  # Seconds 
 # Wake word settings
 WAKE_WORD_MODELS = ['alexa_v0.1']
 INFERENCE_FRAMEWORK = 'tflite'  # tflite (faster on Linux) or onnx (broader compatibility)
-THRESHOLD = 0.3  # Detection threshold (0-1). Lower = more sensitive, higher = fewer false positives
+THRESHOLD = 0.25  # Detection threshold (0-1). Lower = more sensitive, higher = fewer false positives
 LOW_CONFIDENCE_THRESHOLD = 0.1  # Debug threshold for logging low-confidence detections
-WAKE_WORD_COOLDOWN = float(os.getenv('WAKE_WORD_COOLDOWN', '3.0'))  # Seconds to ignore new activations after one fires
+WAKE_WORD_COOLDOWN = float(os.getenv('WAKE_WORD_COOLDOWN', '0.5'))  # Seconds to ignore new activations after one fires
 
 # OpenWakeWord optimizations (reduce false positives)
 VAD_THRESHOLD = float(os.getenv('VAD_THRESHOLD', '0.6'))  # Voice Activity Detection threshold (0-1)
@@ -94,9 +96,8 @@ FUZZY_USE_LEVENSHTEIN = os.getenv('FUZZY_USE_LEVENSHTEIN', 'true').lower() == 't
 # All audio (music, TTS, beep) uses the same PulseAudio sink volume via pactl
 # We do NOT touch ALSA PCM hardware volume (amixer confuses PipeWire session managers)
 # We ONLY control: MPD software volume (100% fixed) + PulseAudio sink (variable)
-MASTER_VOLUME = int(os.getenv('MASTER_VOLUME', '20'))  # Master volume on startup (0-100)
-VOLUME_STEP = int(os.getenv('VOLUME_STEP', '10'))  # Percentage (0-100) for volume up/down commands
-VOLUME_DUCK_LEVEL = int(os.getenv('VOLUME_DUCK_LEVEL', '5'))  # Duck music to X% while listening for voice (0% = mute)
+MASTER_VOLUME = int(os.getenv('MASTER_VOLUME', '15'))  # Master volume on startup (0-100)
+VOLUME_STEP = int(os.getenv('VOLUME_STEP', '5'))  # Percentage (0-100) for volume up/down commands
 VOLUME_FADE_DURATION = float(os.getenv('VOLUME_FADE_DURATION', '30.0'))  # seconds for sleep timer fade
 
 # Kid Safety & Parental Control settings

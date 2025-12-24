@@ -4,35 +4,41 @@ import os
 import sys
 import time
 import wave
+import threading
 import config
 from .logging_utils import setup_logger, log_info, log_success, log_warning, log_error, log_debug, log_stt
 from .retry_utils import retry_transient_errors
 
 logger = setup_logger(__name__)
 
+# Pipeline processing delay (seconds) - allows Hailo hardware to process data
+HAILO_PIPELINE_PROCESSING_DELAY = 0.2
+
 class HailoSTT:
     _instance = None
     _pipeline = None
     _initialized = False
     _language = None
-    
+    _lock = threading.Lock()  # Thread-safe singleton creation and pipeline access
+
     def __new__(cls, debug=False, language=None):
-        if cls._instance is None:
-            cls._instance = super(HailoSTT, cls).__new__(cls)
-            cls._instance.debug = debug
-            cls._instance._setup_hailo_path()
-            cls._instance._load_model(language=language)
-        else:
-            # Update runtime flags on existing singleton
-            cls._instance.debug = debug
-            if language and language != HailoSTT._language:
-                # Switching language requires rebuilding the pipeline
-                try:
-                    cls._instance.cleanup()
-                except Exception:
-                    pass
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(HailoSTT, cls).__new__(cls)
+                cls._instance.debug = debug
+                cls._instance._setup_hailo_path()
                 cls._instance._load_model(language=language)
-        return cls._instance
+            else:
+                # Update runtime flags on existing singleton
+                cls._instance.debug = debug
+                if language and language != HailoSTT._language:
+                    # Switching language requires rebuilding the pipeline
+                    try:
+                        cls._instance.cleanup()
+                    except Exception:
+                        pass
+                    cls._instance._load_model(language=language)
+            return cls._instance
     
     def __init__(self, debug=False, language=None):
         # Already initialized in __new__
@@ -174,18 +180,20 @@ class HailoSTT:
                 return ""
             
             try:
-                for mel in mel_spectrograms:
-                    HailoSTT._pipeline.send_data(mel)
-                    # Give pipeline a moment like the example app does
-                    time.sleep(0.2)
-                    raw = HailoSTT._pipeline.get_transcription()
-                    transcription = clean_transcription(raw).strip()
-                    if transcription:
-                        log_stt(logger, f"{transcription}")
-                    else:
-                        if self.debug:
-                            log_warning(logger, "STT returned empty transcription")
-                    return transcription
+                # Thread-safe access to shared pipeline (Hailo hardware not thread-safe)
+                with HailoSTT._lock:
+                    for mel in mel_spectrograms:
+                        HailoSTT._pipeline.send_data(mel)
+                        # Give pipeline time to process data (required by Hailo hardware)
+                        time.sleep(HAILO_PIPELINE_PROCESSING_DELAY)
+                        raw = HailoSTT._pipeline.get_transcription()
+                        transcription = clean_transcription(raw).strip()
+                        if transcription:
+                            log_stt(logger, f"{transcription}")
+                        else:
+                            if self.debug:
+                                log_warning(logger, "STT returned empty transcription")
+                        return transcription
             finally:
                 os.unlink(tmp_path)
             
@@ -242,8 +250,9 @@ class HailoSTT:
         try:
             # Don't call cleanup in destructor to avoid hanging
             pass
-        except:
-            pass  # Ignore errors during cleanup 
+        except Exception as e:
+            # Ignore errors during cleanup but catch specifically
+            pass 
 
     # ---- helpers (no functional change) ----
     def _get_variant(self):
