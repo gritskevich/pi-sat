@@ -61,6 +61,8 @@ HAILO_STT_DEBUG = False
 STT_MAX_RETRIES = int(os.getenv('STT_MAX_RETRIES', '3'))  # Maximum retry attempts for STT
 STT_RETRY_DELAY = float(os.getenv('STT_RETRY_DELAY', '0.5'))  # Initial retry delay in seconds
 STT_RETRY_BACKOFF = float(os.getenv('STT_RETRY_BACKOFF', '2.0'))  # Exponential backoff factor
+STT_LOCK_TIMEOUT = float(os.getenv('STT_LOCK_TIMEOUT', '15.0'))  # Lock acquisition timeout (seconds)
+STT_REBUILD_THRESHOLD = int(os.getenv('STT_REBUILD_THRESHOLD', '2'))  # Consecutive failures before pipeline rebuild
 
 # MPD (Music Player Daemon) settings
 MPD_HOST = os.getenv('MPD_HOST', 'localhost')

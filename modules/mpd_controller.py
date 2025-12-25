@@ -177,7 +177,7 @@ class MPDController:
             self.connect()
         try:
             yield
-        except (MPDConnectionError, BrokenPipeError, ConnectionResetError) as e:
+        except (MPDConnectionError, ConnectionError, OSError) as e:
             logger.warning(f"MPD connection lost: {e}. Reconnecting...")
             self._connected = False
             self.connect()

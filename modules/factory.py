@@ -82,8 +82,8 @@ def create_mpd_controller(
         debug=debug
     )
 
-    # Connect to MPD and load music catalog
-    mpd.connect()
+    # Lazy connection - _ensure_connection handles it when first MPD operation is called
+    # This allows system to start even if MPD is temporarily unavailable
 
     return mpd
 

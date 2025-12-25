@@ -20,6 +20,7 @@ class HailoSTT:
     _initialized = False
     _language = None
     _lock = threading.Lock()  # Thread-safe singleton creation and pipeline access
+    _consecutive_failures = 0  # Track failures to trigger auto-rebuild
 
     def __new__(cls, debug=False, language=None):
         with cls._lock:
@@ -105,7 +106,7 @@ class HailoSTT:
         return self._transcribe_with_retry(audio_data)
     
     def _transcribe_with_retry(self, audio_data):
-        """Transcribe audio with retry logic for transient errors"""
+        """Transcribe audio with retry logic and auto-rebuild on repeated failures"""
         max_retries = config.STT_MAX_RETRIES
         initial_delay = config.STT_RETRY_DELAY
         backoff_factor = config.STT_RETRY_BACKOFF
@@ -119,6 +120,7 @@ class HailoSTT:
                 result = self._transcribe_hailo(audio_data)
                 
                 if result:
+                    HailoSTT._consecutive_failures = 0  # Reset on success
                     if attempt > 0:
                         log_success(logger, f"STT succeeded after {attempt} retries")
                     return result
@@ -129,7 +131,7 @@ class HailoSTT:
                     time.sleep(delay)
                     continue
                 else:
-                    log_warning(logger, "STT returned empty transcription after all retries")
+                    self._handle_failure("empty transcription after all retries")
                     return ""
                     
             except (RuntimeError, ConnectionError, OSError, IOError) as e:
@@ -141,14 +143,21 @@ class HailoSTT:
                     time.sleep(delay)
                     continue
                 else:
-                    log_error(logger, f"STT failed after {max_retries + 1} attempts: {e}")
+                    self._handle_failure(f"failed after {max_retries + 1} attempts: {e}")
                     return ""
             
             except Exception as e:
                 log_error(logger, f"STT non-retryable error: {e}")
+                self._handle_failure(f"non-retryable error: {e}")
                 return ""
         
         return ""
+    
+    def _handle_failure(self, reason):
+        """Track failures and trigger pipeline rebuild if threshold exceeded"""
+        HailoSTT._consecutive_failures += 1
+        log_warning(logger, f"STT {reason} (consecutive failures: {HailoSTT._consecutive_failures})")
+        self._maybe_rebuild_pipeline()
             
     def _transcribe_hailo(self, audio_data):
         try:
@@ -180,20 +189,32 @@ class HailoSTT:
                 return ""
             
             try:
-                # Thread-safe access to shared pipeline (Hailo hardware not thread-safe)
-                with HailoSTT._lock:
+                # Thread-safe access to shared pipeline with timeout (prevents deadlock)
+                acquired = HailoSTT._lock.acquire(timeout=config.STT_LOCK_TIMEOUT)
+                if not acquired:
+                    log_error(logger, f"Hailo pipeline lock timeout ({config.STT_LOCK_TIMEOUT}s) - possible hardware hang")
+                    HailoSTT._consecutive_failures += 1
+                    self._maybe_rebuild_pipeline()
+                    return ""
+                
+                try:
                     for mel in mel_spectrograms:
                         HailoSTT._pipeline.send_data(mel)
-                        # Give pipeline time to process data (required by Hailo hardware)
                         time.sleep(HAILO_PIPELINE_PROCESSING_DELAY)
                         raw = HailoSTT._pipeline.get_transcription()
                         transcription = clean_transcription(raw).strip()
+                        
+                        # Success - reset failure counter
+                        HailoSTT._consecutive_failures = 0
+                        
                         if transcription:
                             log_stt(logger, f"{transcription}")
                         else:
                             if self.debug:
                                 log_warning(logger, "STT returned empty transcription")
                         return transcription
+                finally:
+                    HailoSTT._lock.release()
             finally:
                 os.unlink(tmp_path)
             
@@ -205,6 +226,17 @@ class HailoSTT:
     
     def is_available(self):
         return HailoSTT._pipeline is not None
+    
+    def _maybe_rebuild_pipeline(self):
+        """Rebuild pipeline if consecutive failures exceed threshold"""
+        if HailoSTT._consecutive_failures >= config.STT_REBUILD_THRESHOLD:
+            log_warning(logger, f"Rebuilding Hailo pipeline after {HailoSTT._consecutive_failures} consecutive failures")
+            HailoSTT._consecutive_failures = 0
+            try:
+                self.cleanup()
+            except Exception:
+                pass
+            self._load_model(language=HailoSTT._language)
     
     def reload(self):
         """Force reload the model"""

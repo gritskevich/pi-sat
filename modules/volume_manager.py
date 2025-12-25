@@ -52,8 +52,8 @@ class VolumeManager:
         Initialize MASTER volume at startup (simplified single-volume approach).
 
         Steps:
-        1. Set MPD software volume to 100% (fixed, never changed)
-        2. Set PulseAudio sink to default_volume (THE ONLY master control)
+        1. Set PulseAudio sink to default_volume (THE ONLY master control) - FIRST!
+        2. Set MPD software volume to 100% (fixed, never changed)
 
         IMPORTANT: We do NOT touch ALSA PCM hardware volume - let it stay at its current level.
         Best practice for Raspberry Pi 5 + PipeWire: only control via PulseAudio sink (pactl).
@@ -62,26 +62,24 @@ class VolumeManager:
             default_volume: Default master volume percentage (0-100)
         """
         try:
-            # Step 1: Set MPD to 100% (software volume, never changed after this)
-            if self.mpd_controller:
-                self._set_mpd_volume_100()
-
-            # Step 2: Set PulseAudio sink to default volume (THE ONLY master control)
+            # Step 1: Set PulseAudio sink to default volume FIRST (before any MPD operations)
             success = self.set_master_volume(default_volume)
             if success:
                 self.master_volume = default_volume
                 logger.info(f"🔊 Initialized MASTER volume: {default_volume}%")
             else:
                 logger.warning(f"Failed to initialize volume to {default_volume}%, using current volume")
-                # Try to read current volume
                 current = self.get_master_volume()
                 if current is not None:
                     self.master_volume = current
                     logger.info(f"🔊 Using current MASTER volume: {current}%")
                 else:
-                    # Fall back to default in cache
                     self.master_volume = default_volume
                     logger.warning(f"Cannot read volume, assuming {default_volume}%")
+
+            # Step 2: Set MPD to 100% (software volume, never changed after this)
+            if self.mpd_controller:
+                self._set_mpd_volume_100()
         except Exception as e:
             logger.error(f"Error initializing default volume: {e}")
             self.master_volume = default_volume
