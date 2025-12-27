@@ -106,8 +106,12 @@ class Orchestrator:
         try:
             signal.signal(signal.SIGINT, self._signal_handler)
             signal.signal(signal.SIGTERM, self._signal_handler)
-        except Exception:
-            pass
+        except (ValueError, OSError) as e:
+            # Signal handlers can't be set in some environments (e.g., threads, containers)
+            log_warning(self.logger, f"Could not register signal handlers: {e}")
+            log_warning(self.logger, "Graceful shutdown on SIGINT/SIGTERM may not work")
+        except Exception as e:
+            log_error(self.logger, f"Unexpected error registering signal handlers: {e}")
 
         # Create wake word listener if not provided
         if self.wake_word_listener is None:
@@ -126,35 +130,25 @@ class Orchestrator:
             log_error(self.logger, f"Orchestrator error: {e}")
             self.stop()
 
-    def _on_wake_word_detected(self, stream=None, input_rate=None):
+    def _on_wake_word_detected(self):
         """
         Handle wake word detection.
 
-        Args:
-            stream: Active audio stream from wake word listener (for immediate recording)
-            input_rate: Stream sample rate
-
-        Plays wake sound and delegates command processing.
-        Stream reuse eliminates ~200ms latency from creating new PyAudio stream.
+        Delegates command processing to CommandProcessor.
+        Wake word stream is already closed - command processor creates fresh stream for recording.
         """
         if self.is_processing:
             log_warning(self.logger, "Ignoring wake word - already processing command")
             return
 
         log_success(self.logger, "🔔 WAKE WORD DETECTED!")
-        # Wake sound is played by WakeWordListener (non-blocking)
-        # Recording starts IMMEDIATELY while wake sound plays
-        # Skip time is configurable (0.0 = instant, 0.7 = skip full wake sound)
+        # Wake sound already played by WakeWordListener
+        # OWW stream already closed - command processor creates fresh stream
         self.is_processing = True
 
         try:
-            # Delegate to command processor with stream context
-            # skip_initial_seconds from config allows instant recording (0.0) or clean recording (0.7)
-            self.command_processor.process_command(
-                stream=stream,
-                input_rate=input_rate,
-                skip_initial_seconds=config.WAKE_SOUND_SKIP_SECONDS
-            )
+            # Delegate to command processor (creates its own recording stream)
+            self.command_processor.process_command()
         finally:
             self.is_processing = False
             log_info(self.logger, "✅ Ready for next wake word")

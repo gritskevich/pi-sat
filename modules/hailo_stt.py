@@ -8,6 +8,7 @@ import threading
 import config
 from .logging_utils import setup_logger, log_info, log_success, log_warning, log_error, log_debug, log_stt
 from .retry_utils import retry_transient_errors
+from .audio_file_utils import to_int16, write_wav_int16
 
 logger = setup_logger(__name__)
 
@@ -15,35 +16,23 @@ logger = setup_logger(__name__)
 HAILO_PIPELINE_PROCESSING_DELAY = 0.2
 
 class HailoSTT:
-    _instance = None
-    _pipeline = None
-    _initialized = False
-    _language = None
-    _lock = threading.Lock()  # Thread-safe singleton creation and pipeline access
-    _consecutive_failures = 0  # Track failures to trigger auto-rebuild
-
-    def __new__(cls, debug=False, language=None):
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super(HailoSTT, cls).__new__(cls)
-                cls._instance.debug = debug
-                cls._instance._setup_hailo_path()
-                cls._instance._load_model(language=language)
-            else:
-                # Update runtime flags on existing singleton
-                cls._instance.debug = debug
-                if language and language != HailoSTT._language:
-                    # Switching language requires rebuilding the pipeline
-                    try:
-                        cls._instance.cleanup()
-                    except Exception:
-                        pass
-                    cls._instance._load_model(language=language)
-            return cls._instance
-    
     def __init__(self, debug=False, language=None):
-        # Already initialized in __new__
-        pass
+        """
+        Initialize Hailo STT engine.
+
+        Args:
+            debug: Enable debug logging
+            language: Language code (e.g., 'en', 'fr')
+        """
+        self.debug = debug
+        self.language = language or config.HAILO_STT_LANGUAGE
+        self._lock = threading.Lock()  # Thread-safe pipeline access
+        self._consecutive_failures = 0  # Track failures to trigger auto-rebuild
+        self._pipeline = None
+        self._initialized = False
+
+        self._setup_hailo_path()
+        self._load_model(language=self.language)
         
     def _setup_hailo_path(self):
         hailo_path = os.path.join(
@@ -54,12 +43,12 @@ class HailoSTT:
             sys.path.insert(0, hailo_path)
         
     def _load_model(self, language=None):
-        if HailoSTT._initialized and HailoSTT._pipeline is not None:
+        if self._initialized and self._pipeline is not None:
             return
-            
+
         if self.debug:
             log_info(logger, "Loading Hailo STT pipeline")
-        
+
         try:
             from app.hailo_whisper_pipeline import HailoWhisperPipeline
             variant = self._get_variant()
@@ -69,40 +58,38 @@ class HailoSTT:
                     logger,
                     f"Hailo model files not found for variant '{variant}':\n encoder: {encoder_path}\n decoder: {decoder_path}"
                 )
-                HailoSTT._pipeline = None
-                HailoSTT._initialized = False
-                HailoSTT._language = None
+                self._pipeline = None
+                self._initialized = False
                 return
 
-            HailoSTT._pipeline = HailoWhisperPipeline(
+            self._pipeline = HailoWhisperPipeline(
                 encoder_path,
                 decoder_path,
                 variant,
                 multi_process_service=False,
                 language=language or config.HAILO_STT_LANGUAGE,
             )
-            
-            HailoSTT._initialized = True
-            HailoSTT._language = language or config.HAILO_STT_LANGUAGE
+
+            self._initialized = True
+            self.language = language or config.HAILO_STT_LANGUAGE
 
             if self.debug:
-                log_success(logger, f"Loaded Hailo Whisper {variant} model (language: {HailoSTT._language})")
-            
+                log_success(logger, f"Loaded Hailo Whisper {variant} model (language: {self.language})")
+
         except Exception as e:
             log_error(logger, f"Failed to load Hailo model: {e}")
-            HailoSTT._pipeline = None
-            HailoSTT._initialized = False
-            HailoSTT._language = None
+            self._pipeline = None
+            self._initialized = False
             
     def transcribe(self, audio_data):
         if len(audio_data) == 0:
             return ""
-        
-        if not HailoSTT._pipeline:
+
+        if not self._pipeline:
             if self.debug:
                 log_warning(logger, "STT not available - no model loaded")
             return ""
-        
+
         return self._transcribe_with_retry(audio_data)
     
     def _transcribe_with_retry(self, audio_data):
@@ -118,9 +105,9 @@ class HailoSTT:
                     log_warning(logger, f"STT retry attempt {attempt}/{max_retries}")
                 
                 result = self._transcribe_hailo(audio_data)
-                
+
                 if result:
-                    HailoSTT._consecutive_failures = 0  # Reset on success
+                    self._consecutive_failures = 0  # Reset on success
                     if attempt > 0:
                         log_success(logger, f"STT succeeded after {attempt} retries")
                     return result
@@ -155,117 +142,128 @@ class HailoSTT:
     
     def _handle_failure(self, reason):
         """Track failures and trigger pipeline rebuild if threshold exceeded"""
-        HailoSTT._consecutive_failures += 1
-        log_warning(logger, f"STT {reason} (consecutive failures: {HailoSTT._consecutive_failures})")
+        self._consecutive_failures += 1
+        log_warning(logger, f"STT {reason} (consecutive failures: {self._consecutive_failures})")
         self._maybe_rebuild_pipeline()
             
     def _transcribe_hailo(self, audio_data):
+        tmp_path = None
         try:
             tmp_path = self._write_temp_wav(audio_data)
-            
+
             from common.audio_utils import load_audio
             from common.preprocessing import preprocess, improve_input_audio
             from common.postprocessing import clean_transcription
-            
+
             sampled_audio = load_audio(tmp_path)
             sampled_audio, start_time = improve_input_audio(sampled_audio, vad=True)
-            
+
             # Handle None start_time
             if start_time is None:
                 start_time = 0.0
-            
+
             chunk_offset = max(0, start_time - 0.2)
             chunk_length = self._get_chunk_length()
-            
+
             mel_spectrograms = preprocess(
                 sampled_audio,
                 is_nhwc=True,
                 chunk_length=chunk_length,
                 chunk_offset=chunk_offset
             )
-            
+
             if not mel_spectrograms:
-                os.unlink(tmp_path)
                 return ""
-            
+
+            # Thread-safe access to pipeline with timeout (prevents deadlock)
+            acquired = self._lock.acquire(timeout=config.STT_LOCK_TIMEOUT)
+            if not acquired:
+                log_error(logger, f"Hailo pipeline lock timeout ({config.STT_LOCK_TIMEOUT}s) - possible hardware hang")
+                self._consecutive_failures += 1
+                self._maybe_rebuild_pipeline()
+                return ""
+
             try:
-                # Thread-safe access to shared pipeline with timeout (prevents deadlock)
-                acquired = HailoSTT._lock.acquire(timeout=config.STT_LOCK_TIMEOUT)
-                if not acquired:
-                    log_error(logger, f"Hailo pipeline lock timeout ({config.STT_LOCK_TIMEOUT}s) - possible hardware hang")
-                    HailoSTT._consecutive_failures += 1
-                    self._maybe_rebuild_pipeline()
-                    return ""
-                
-                try:
-                    for mel in mel_spectrograms:
-                        HailoSTT._pipeline.send_data(mel)
-                        time.sleep(HAILO_PIPELINE_PROCESSING_DELAY)
-                        raw = HailoSTT._pipeline.get_transcription()
-                        transcription = clean_transcription(raw).strip()
-                        
-                        # Success - reset failure counter
-                        HailoSTT._consecutive_failures = 0
-                        
-                        if transcription:
-                            log_stt(logger, f"{transcription}")
-                        else:
-                            if self.debug:
-                                log_warning(logger, "STT returned empty transcription")
-                        return transcription
-                finally:
-                    HailoSTT._lock.release()
+                for mel in mel_spectrograms:
+                    self._pipeline.send_data(mel)
+                    time.sleep(HAILO_PIPELINE_PROCESSING_DELAY)
+                    raw = self._pipeline.get_transcription()
+                    transcription = clean_transcription(raw).strip()
+
+                    # Success - reset failure counter
+                    self._consecutive_failures = 0
+
+                    if transcription:
+                        log_stt(logger, f"{transcription}")
+                    else:
+                        if self.debug:
+                            log_warning(logger, "STT returned empty transcription")
+                    return transcription
             finally:
-                os.unlink(tmp_path)
-            
+                self._lock.release()
+
             return ""
-                
+
         except Exception as e:
             log_error(logger, f"Hailo STT error: {e}")
             return ""
+        finally:
+            # Guaranteed temp file cleanup - even on lock timeout or exception
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception as cleanup_error:
+                    # Silently ignore cleanup errors (file already deleted, permission issue, etc.)
+                    pass
     
     def is_available(self):
-        return HailoSTT._pipeline is not None
-    
+        return self._pipeline is not None
+
     def _maybe_rebuild_pipeline(self):
         """Rebuild pipeline if consecutive failures exceed threshold"""
-        if HailoSTT._consecutive_failures >= config.STT_REBUILD_THRESHOLD:
-            log_warning(logger, f"Rebuilding Hailo pipeline after {HailoSTT._consecutive_failures} consecutive failures")
-            HailoSTT._consecutive_failures = 0
+        if self._consecutive_failures >= config.STT_REBUILD_THRESHOLD:
+            log_warning(logger, f"Rebuilding Hailo pipeline after {self._consecutive_failures} consecutive failures")
+            self._consecutive_failures = 0
             try:
                 self.cleanup()
-            except Exception:
-                pass
-            self._load_model(language=HailoSTT._language)
+            except (RuntimeError, OSError) as e:
+                log_warning(logger, f"Error during pipeline cleanup (continuing): {e}")
+            except Exception as e:
+                log_error(logger, f"Unexpected error during pipeline cleanup: {e}")
+            self._load_model(language=self.language)
     
     def reload(self):
         """Force reload the model"""
         if self.debug:
             log_info(logger, "Reloading Hailo STT model...")
-        
-        HailoSTT._initialized = False
-        HailoSTT._pipeline = None
+
+        self._initialized = False
+        self._pipeline = None
         # Preserve language preference if already set
-        self._load_model(language=HailoSTT._language)
-        
+        self._load_model(language=self.language)
+
         if self.debug:
-            if HailoSTT._pipeline is not None:
+            if self._pipeline is not None:
                 log_success(logger, "Hailo STT model reloaded successfully")
             else:
                 log_warning(logger, "Hailo STT model reload failed")
     
     def cleanup(self):
         """Clean up Hailo pipeline resources"""
-        if HailoSTT._pipeline:
+        if self._pipeline:
             try:
                 # Try graceful stop with timeout safety via background thread
                 try:
-                    HailoSTT._pipeline.stop()
-                except Exception:
-                    pass
-                HailoSTT._pipeline = None
-                HailoSTT._initialized = False
-                HailoSTT._language = None
+                    self._pipeline.stop()
+                except (RuntimeError, AttributeError) as e:
+                    # Pipeline already stopped or not initialized properly
+                    if self.debug:
+                        log_debug(logger, f"Pipeline stop issue (ignoring): {e}")
+                except Exception as e:
+                    log_warning(logger, f"Unexpected error stopping pipeline: {e}")
+
+                self._pipeline = None
+                self._initialized = False
                 if self.debug:
                     log_info(logger, "Hailo pipeline cleaned up")
             except Exception as e:
@@ -275,7 +273,7 @@ class HailoSTT:
                 log_info(logger, "No Hailo pipeline to clean up")
 
     def get_language(self):
-        return HailoSTT._language
+        return self.language
     
     def __del__(self):
         """Destructor to ensure cleanup"""
@@ -313,22 +311,7 @@ class HailoSTT:
         return enc, dec
 
     def _write_temp_wav(self, audio_data):
-        def _to_int16(samples):
-            arr = np.asarray(samples)
-            if arr.dtype == np.int16:
-                return arr
-            if np.issubdtype(arr.dtype, np.floating):
-                arr = np.clip(arr, -1.0, 1.0)
-                return (arr * 32767.0).astype(np.int16)
-            return arr.astype(np.int16)
-
-        def _write_wav_int16(path: str, samples_i16: np.ndarray, rate: int):
-            with wave.open(path, "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(int(rate))
-                wf.writeframes(samples_i16.astype(np.int16, copy=False).tobytes())
-
+        """Write audio data to temporary WAV file, handling both bytes and numpy arrays."""
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
             tmp_path = tmp_file.name
             if isinstance(audio_data, bytes):
@@ -338,10 +321,10 @@ class HailoSTT:
                     tmp_file.flush()
                 else:
                     audio_array = np.frombuffer(audio_data, dtype=np.int16)
-                    _write_wav_int16(tmp_path, audio_array, config.SAMPLE_RATE)
+                    write_wav_int16(tmp_path, audio_array, config.SAMPLE_RATE)
             else:
                 # Assume numpy array of PCM samples
-                _write_wav_int16(tmp_path, _to_int16(audio_data), config.SAMPLE_RATE)
+                write_wav_int16(tmp_path, to_int16(audio_data), config.SAMPLE_RATE)
         return tmp_path
 
     def _get_chunk_length(self):

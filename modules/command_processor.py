@@ -95,18 +95,13 @@ class CommandProcessor:
 
         logger.info("CommandProcessor initialized")
 
-    def process_command(self, stream=None, input_rate=None, skip_initial_seconds=0.0) -> bool:
+    def process_command(self) -> bool:
         """
         Process a single voice command through the complete pipeline.
 
-        Args:
-            stream: Optional active PyAudio stream (for immediate recording, eliminates latency)
-            input_rate: Stream sample rate (required if stream provided)
-            skip_initial_seconds: Seconds to skip at start of recording (e.g., 0.7 for wake sound)
-
         Pipeline steps:
         1. Pause music playback for better voice input
-        2. Record audio with VAD silence detection
+        2. Record audio with VAD silence detection (creates fresh PyAudio stream)
         3. Transcribe audio to text with STT
         4. Classify text into intent
         5. Validate command (catalog check, parameter validation, French TTS feedback)
@@ -124,13 +119,9 @@ class CommandProcessor:
             log_debug(self.logger, f"Pause failed (continuing anyway): {e}")
 
         try:
-            # Step 1: Record audio
+            # Step 1: Record audio (creates fresh stream)
             log_info(self.logger, "🎤 Recording command...")
-            audio_data = self._record_command(
-                stream=stream,
-                input_rate=input_rate,
-                skip_initial_seconds=skip_initial_seconds
-            )
+            audio_data = self._record_command()
 
             if not audio_data or len(audio_data) == 0:
                 log_warning(self.logger, "No audio recorded")
@@ -200,33 +191,18 @@ class CommandProcessor:
             except Exception as e:
                 log_debug(self.logger, f"Resume failed (not critical): {e}")
 
-    def _record_command(self, stream=None, input_rate=None, skip_initial_seconds=0.0) -> bytes:
+    def _record_command(self) -> bytes:
         """
         Record voice command with VAD.
 
-        Args:
-            stream: Optional active PyAudio stream (eliminates ~200ms stream creation latency)
-            input_rate: Stream sample rate (required if stream provided)
-            skip_initial_seconds: Seconds to discard at start (e.g., 0.7 for wake sound)
-
-        Returns:
-            Audio data as bytes
+        Creates fresh PyAudio stream for clean recording.
+        Returns audio data as bytes.
         """
         if self.debug:
-            if stream is not None:
-                log_debug(self.logger, "🎤 Recording with stream reuse (optimized!)")
             log_debug(self.logger, "🎤 Recording with VAD silence detection...")
 
-        # Use existing stream if provided (FAST!), otherwise create new stream (legacy fallback)
-        if stream is not None and input_rate is not None:
-            audio_data = self.speech_recorder.record_from_stream(
-                stream=stream,
-                input_rate=input_rate,
-                skip_initial_seconds=skip_initial_seconds
-            )
-        else:
-            # Legacy fallback: create new stream (slower)
-            audio_data = self.speech_recorder.record_command()
+        # Always create fresh stream (clean, simple, reliable)
+        audio_data = self.speech_recorder.record_command()
 
         if self.debug and audio_data:
             log_debug(self.logger, f"🎤 Recorded {len(audio_data)} bytes")

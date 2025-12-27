@@ -27,6 +27,7 @@ import re
 import unicodedata
 from pathlib import Path
 from typing import Optional, List, Tuple
+import config
 from modules.logging_utils import setup_logger
 from modules.intent_engine import IntentEngine
 
@@ -54,7 +55,7 @@ class MusicLibrary:
         fuzzy_threshold: int = 50,
         cache_enabled: bool = True,
         phonetic_enabled: bool = True,
-        phonetic_weight: float = 0.6,
+        phonetic_weight: float = None,
         debug: bool = False
     ):
         """
@@ -72,7 +73,7 @@ class MusicLibrary:
         self.fuzzy_threshold = fuzzy_threshold
         self.cache_enabled = cache_enabled
         self.phonetic_enabled = phonetic_enabled and PHONETIC_AVAILABLE
-        self.phonetic_weight = phonetic_weight
+        self.phonetic_weight = phonetic_weight if phonetic_weight is not None else config.PHONETIC_WEIGHT
         self.debug = debug
 
         # Catalog storage

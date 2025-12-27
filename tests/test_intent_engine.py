@@ -325,10 +325,13 @@ class TestIntentEngine(unittest.TestCase):
         intents = self.engine.get_supported_intents()
 
         self.assertIsInstance(intents, list)
+        self.assertEqual(len(intents), 4)  # Only 4 active intents (KISS)
+
+        # Check all active intents
         self.assertIn('play_music', intents)
-        self.assertIn('pause', intents)
         self.assertIn('volume_up', intents)
-        self.assertIn('sleep_timer', intents)
+        self.assertIn('volume_down', intents)
+        self.assertIn('stop', intents)
 
     def test_intent_representation(self):
         """Test: Intent __repr__ for debugging"""

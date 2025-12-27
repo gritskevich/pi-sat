@@ -34,12 +34,21 @@ Supported Intents (20+):
 
 import re
 import logging
+import unicodedata
 from typing import Dict, Optional, Tuple, List
-from thefuzz import fuzz, process
+from thefuzz import fuzz
 
 import config
 from modules.interfaces import Intent
 from modules.intent_patterns import ACTIVE_INTENTS, LANGUAGE_PATTERNS
+
+# Phonetic matching (optional) for "sounds alike" intent matching
+try:
+    from abydos.phonetic import BeiderMorse
+    PHONETIC_AVAILABLE = True
+except ImportError:
+    PHONETIC_AVAILABLE = False
+    BeiderMorse = None
 
 # Logging
 logger = logging.getLogger(__name__)
@@ -103,6 +112,23 @@ class IntentEngine:
         self.debug = debug
         self._sorted_patterns_cache: Dict[str, List[Tuple[str, Dict]]] = {}
 
+        # Phonetic matching (optional, aligns with MusicLibrary hybrid approach)
+        self.phonetic_weight = getattr(config, "PHONETIC_WEIGHT", 0.6)
+        self.phonetic_enabled = PHONETIC_AVAILABLE
+        self._phonetic_matcher = None
+        self._phonetic_cache: Dict[str, str] = {}
+        self._query_phonetic_cache: Dict[str, str] = {}
+        if self.phonetic_enabled:
+            try:
+                self._phonetic_matcher = BeiderMorse(
+                    language_arg=0,
+                    name_mode='gen',
+                    match_mode='approx'
+                )
+            except Exception:
+                self.phonetic_enabled = False
+                self._phonetic_matcher = None
+
         # Auto-detect language from config if not specified
         if language is None:
             language = getattr(config, 'HAILO_STT_LANGUAGE', 'fr')  # Default: French
@@ -128,6 +154,63 @@ class IntentEngine:
             f"threshold={fuzzy_threshold}, "
             f"intents={len(self.intent_patterns)}"
         )
+
+    def _phonetic_allowed(self, text: str) -> bool:
+        norm = unicodedata.normalize('NFKD', text.lower())
+        norm = ''.join(ch for ch in norm if not unicodedata.combining(ch))
+        norm = re.sub(r'[^a-z0-9]+', '', norm).strip()
+        return len(norm) >= 3
+
+    def _encode_phonetic(self, text: str, cache: Dict[str, str]) -> str:
+        if not self.phonetic_enabled or not self._phonetic_matcher:
+            return ""
+        if not text or not self._phonetic_allowed(text):
+            return ""
+        norm = unicodedata.normalize('NFKD', text.lower())
+        norm = ''.join(ch for ch in norm if not unicodedata.combining(ch))
+        norm = re.sub(r'[^a-z0-9]+', '', norm).strip()
+        cached = cache.get(norm)
+        if cached is not None:
+            return cached
+        try:
+            encoded = self._phonetic_matcher.encode(norm or text)
+            phonetic_str = '|'.join(sorted(encoded)) if isinstance(encoded, tuple) else str(encoded)
+        except Exception:
+            phonetic_str = ""
+        cache[norm] = phonetic_str
+        return phonetic_str
+
+    def _get_query_phonetic(self, text: str) -> str:
+        return self._encode_phonetic(text, self._query_phonetic_cache)
+
+    def _get_trigger_phonetic(self, text: str) -> str:
+        return self._encode_phonetic(text, self._phonetic_cache)
+
+    def _score_trigger(self, text: str, trigger: str) -> Tuple[int, int, float]:
+        text_score = fuzz.token_set_ratio(text, trigger)
+        if not self.phonetic_enabled:
+            return text_score, 0, float(text_score)
+        query_phonetic = self._get_query_phonetic(text)
+        trigger_phonetic = self._get_trigger_phonetic(trigger)
+        if not query_phonetic or not trigger_phonetic:
+            return text_score, 0, float(text_score)
+        phonetic_score = fuzz.token_set_ratio(query_phonetic, trigger_phonetic)
+        combined = (text_score * (1.0 - self.phonetic_weight)) + (phonetic_score * self.phonetic_weight)
+        return text_score, phonetic_score, combined
+
+    def _best_trigger_match(self, text: str, triggers: List[str]) -> Tuple[str, float, int, int]:
+        best_phrase = None
+        best_score = 0.0
+        best_text = 0
+        best_phonetic = 0
+        for trigger in triggers:
+            text_score, phonetic_score, combined = self._score_trigger(text, trigger)
+            if combined > best_score:
+                best_score = combined
+                best_phrase = trigger
+                best_text = text_score
+                best_phonetic = phonetic_score
+        return best_phrase, best_score, best_text, best_phonetic
 
     def _sort_patterns(self, patterns: Dict[str, Dict]) -> List[Tuple[str, Dict]]:
         return sorted(
@@ -233,17 +316,17 @@ class IntentEngine:
                         continue
             # Fuzzy match against all trigger phrases
             # Use token_set_ratio for better handling of extra words
-            match_result = process.extractOne(
-                text,
-                pattern['triggers'],
-                scorer=fuzz.token_set_ratio
-            )
+            phrase, score, text_score, phonetic_score = self._best_trigger_match(text, pattern['triggers'])
 
-            if match_result:
-                phrase, score = match_result[0], match_result[1]
-
+            if phrase:
                 if self.debug:
-                    logger.debug(f"  {intent_type}: {score} ('{phrase}')")
+                    if self.phonetic_enabled:
+                        logger.debug(
+                            f"  {intent_type}: {score:.1f} "
+                            f"(text={text_score}, phonetic={phonetic_score}) ('{phrase}')"
+                        )
+                    else:
+                        logger.debug(f"  {intent_type}: {score:.1f} ('{phrase}')")
 
                 if intent_type == 'stop':
                     if not re.search(r'\b(arrête|arrete|stop)\b', text) and score < 80:

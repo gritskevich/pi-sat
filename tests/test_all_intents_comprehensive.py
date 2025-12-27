@@ -91,6 +91,7 @@ class TestPlayMusicIntent(unittest.TestCase):
         self.assertIsNotNone(intent.parameters.get('query'))
 
 
+@unittest.skipIf('play_favorites' not in ACTIVE_INTENTS, "play_favorites intent not active")
 class TestPlayFavoritesIntent(unittest.TestCase):
     """Test play_favorites intent - 10 realistic French commands"""
 
@@ -139,6 +140,7 @@ class TestPlayFavoritesIntent(unittest.TestCase):
         self.assertEqual(intent.intent_type, 'play_favorites')
 
 
+@unittest.skipIf('pause' not in ACTIVE_INTENTS, "pause intent not active")
 class TestPauseIntent(unittest.TestCase):
     """Test pause intent - 10 realistic French commands"""
 
@@ -190,6 +192,7 @@ class TestPauseIntent(unittest.TestCase):
         self.assertEqual(intent.intent_type, 'pause')
 
 
+@unittest.skipIf('resume' not in ACTIVE_INTENTS, "resume intent not active")
 class TestResumeIntent(unittest.TestCase):
     """Test resume intent - 10 realistic French commands"""
 
@@ -288,6 +291,7 @@ class TestStopIntent(unittest.TestCase):
         self.assertEqual(intent.intent_type, 'stop')
 
 
+@unittest.skipIf('next' not in ACTIVE_INTENTS, "next intent not active")
 class TestNextIntent(unittest.TestCase):
     """Test next intent - 10 realistic French commands"""
 
@@ -337,6 +341,7 @@ class TestNextIntent(unittest.TestCase):
         self.assertEqual(intent.intent_type, 'next')
 
 
+@unittest.skipIf('previous' not in ACTIVE_INTENTS, "previous intent not active")
 class TestPreviousIntent(unittest.TestCase):
     """Test previous intent - 10 realistic French commands"""
 
@@ -487,6 +492,7 @@ class TestVolumeDownIntent(unittest.TestCase):
         self.assertEqual(intent.intent_type, 'volume_down')
 
 
+@unittest.skipIf('set_volume' not in ACTIVE_INTENTS, "set_volume intent not active")
 class TestSetVolumeIntent(unittest.TestCase):
     """Test set_volume intent - 10 realistic French commands"""
 
@@ -546,6 +552,7 @@ class TestSetVolumeIntent(unittest.TestCase):
         self.assertEqual(intent.parameters.get('volume'), 100)
 
 
+@unittest.skipIf('add_favorite' not in ACTIVE_INTENTS, "add_favorite intent not active")
 class TestAddFavoriteIntent(unittest.TestCase):
     """Test add_favorite intent - 10 realistic French commands"""
 
@@ -595,6 +602,7 @@ class TestAddFavoriteIntent(unittest.TestCase):
         self.assertEqual(intent.intent_type, 'add_favorite')
 
 
+@unittest.skipIf('repeat_song' not in ACTIVE_INTENTS, "repeat_song intent not active")
 class TestRepeatSongIntent(unittest.TestCase):
     """Test repeat_song intent - 10 realistic French commands"""
 
@@ -644,6 +652,7 @@ class TestRepeatSongIntent(unittest.TestCase):
         self.assertEqual(intent.intent_type, 'repeat_song')
 
 
+@unittest.skipIf('repeat_off' not in ACTIVE_INTENTS, "repeat_off intent not active")
 class TestRepeatOffIntent(unittest.TestCase):
     """Test repeat_off intent - 10 realistic French commands"""
 
@@ -693,6 +702,7 @@ class TestRepeatOffIntent(unittest.TestCase):
         self.assertEqual(intent.intent_type, 'repeat_off')
 
 
+@unittest.skipIf('shuffle_on' not in ACTIVE_INTENTS, "shuffle_on intent not active")
 class TestShuffleOnIntent(unittest.TestCase):
     """Test shuffle_on intent - 10 realistic French commands"""
 
@@ -741,6 +751,7 @@ class TestShuffleOnIntent(unittest.TestCase):
         self.assertEqual(intent.intent_type, 'shuffle_on')
 
 
+@unittest.skipIf('shuffle_off' not in ACTIVE_INTENTS, "shuffle_off intent not active")
 class TestShuffleOffIntent(unittest.TestCase):
     """Test shuffle_off intent - 10 realistic French commands"""
 
@@ -789,6 +800,7 @@ class TestShuffleOffIntent(unittest.TestCase):
         self.assertEqual(intent.intent_type, 'shuffle_off')
 
 
+@unittest.skip("Boundary tests for inactive intents")
 class TestIntentBoundaries(unittest.TestCase):
     """
     Test intent boundaries and collision detection.

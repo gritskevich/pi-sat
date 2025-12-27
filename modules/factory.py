@@ -15,6 +15,7 @@ Implements dependency injection pattern for:
 Following KISS principle: Simple factory functions, no complex frameworks.
 """
 
+import subprocess
 import config
 from modules.speech_recorder import SpeechRecorder
 from modules.hailo_stt import HailoSTT
@@ -45,6 +46,12 @@ def create_music_library(
     library_path = library_path or config.MUSIC_LIBRARY
     fuzzy_threshold = fuzzy_threshold or config.FUZZY_MATCH_THRESHOLD
 
+    # Update MPD database to sync with filesystem changes
+    try:
+        subprocess.run(['mpc', 'update'], check=False, capture_output=True, timeout=5)
+    except Exception:
+        pass  # Continue even if update fails
+
     return MusicLibrary(
         library_path=library_path,
         fuzzy_threshold=fuzzy_threshold,
@@ -56,7 +63,8 @@ def create_music_library(
 def create_mpd_controller(
     host: str = None,
     port: int = None,
-    music_library: str = None,
+    music_library: str = None,  # DEPRECATED: Use music_library_instance
+    music_library_instance: MusicLibrary = None,  # NEW: Inject MusicLibrary
     debug: bool = False
 ) -> MPDController:
     """
@@ -65,20 +73,28 @@ def create_mpd_controller(
     Args:
         host: MPD host (None for config default)
         port: MPD port (None for config default)
-        music_library: Music library path (None for config default)
+        music_library: Music library path (None for config default) - DEPRECATED
+        music_library_instance: Pre-configured MusicLibrary instance (recommended)
         debug: Enable debug logging
 
     Returns:
         Configured MPDController instance (connected to MPD)
+
+    Note:
+        Prefer using music_library_instance for better testability and to share
+        a single MusicLibrary instance across components.
     """
     host = host or config.MPD_HOST
     port = port or config.MPD_PORT
-    music_library = music_library or config.MUSIC_LIBRARY
+
+    # Create MusicLibrary if not injected (backward compatible)
+    if music_library_instance is None:
+        music_library_instance = create_music_library(debug=debug)
 
     mpd = MPDController(
         host=host,
         port=port,
-        music_library=music_library,
+        music_library_instance=music_library_instance,
         debug=debug
     )
 

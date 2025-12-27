@@ -5,9 +5,10 @@ Tests the new set_volume intent with number extraction and French number words.
 """
 
 import unittest
-from modules.intent_engine import IntentEngine
+from modules.intent_engine import IntentEngine, ACTIVE_INTENTS
 
 
+@unittest.skipIf('set_volume' not in ACTIVE_INTENTS, "set_volume intent not active")
 class TestSetVolumeIntent(unittest.TestCase):
     """Test set_volume intent with comprehensive French vocabulary"""
 

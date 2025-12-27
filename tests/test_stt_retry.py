@@ -21,25 +21,12 @@ class TestSTTRetry(PiSatTestBase):
         # Never start real Hailo threads in unit tests
         self._load_model_patcher = patch.object(HailoSTT, "_load_model", return_value=None)
         self._load_model_patcher.start()
-        # Reset singleton for clean tests
-        HailoSTT._instance = None
-        HailoSTT._pipeline = None
-        HailoSTT._initialized = False
-    
+
     def tearDown(self):
         try:
             self._load_model_patcher.stop()
         except Exception:
             pass
-        # Clean up singleton
-        if HailoSTT._instance:
-            try:
-                HailoSTT._instance.cleanup()
-            except:
-                pass
-        HailoSTT._instance = None
-        HailoSTT._pipeline = None
-        HailoSTT._initialized = False
         super().tearDown()
     
     def test_stt_retries_on_transient_error(self):
@@ -62,8 +49,8 @@ class TestSTTRetry(PiSatTestBase):
             return "test transcription"
         
         stt._transcribe_hailo = mock_transcribe
-        HailoSTT._pipeline = mock_pipeline
-        
+        stt._pipeline = mock_pipeline
+
         # Mock is_available to return True
         with patch.object(stt, 'is_available', return_value=True):
             result = stt.transcribe(b"fake audio data")
@@ -74,19 +61,19 @@ class TestSTTRetry(PiSatTestBase):
     
     def test_stt_fails_after_max_retries(self):
         """Test: STT fails after max retries
-        
+
         Given: STT always fails
         When: transcribe() called
         Then: Returns empty string after max retries
         """
         stt = HailoSTT(debug=True)
-        
+
         def mock_transcribe(audio_data):
             raise RuntimeError("Persistent Hailo error")
-        
+
         stt._transcribe_hailo = mock_transcribe
-        HailoSTT._pipeline = MagicMock()
-        
+        stt._pipeline = MagicMock()
+
         with patch.object(stt, 'is_available', return_value=True):
             result = stt.transcribe(b"fake audio data")
         
@@ -102,8 +89,8 @@ class TestSTTRetry(PiSatTestBase):
         Then: Attempts reload before retrying
         """
         stt = HailoSTT(debug=True)
-        HailoSTT._pipeline = None
-        
+        stt._pipeline = None
+
         reload_called = [False]
         original_reload = stt.reload
         
@@ -136,24 +123,24 @@ class TestSTTRetry(PiSatTestBase):
     
     def test_stt_handles_connection_error(self):
         """Test: STT retries on connection errors
-        
+
         Given: STT raises ConnectionError
         When: transcribe() called
         Then: Retries before failing
         """
         stt = HailoSTT(debug=True)
-        
+
         call_count = [0]
-        
+
         def mock_transcribe(audio_data):
             call_count[0] += 1
             if call_count[0] < 3:
                 raise ConnectionError("Hailo connection lost")
             return "success after retry"
-        
+
         stt._transcribe_hailo = mock_transcribe
-        HailoSTT._pipeline = MagicMock()
-        
+        stt._pipeline = MagicMock()
+
         with patch.object(stt, 'is_available', return_value=True):
             result = stt.transcribe(b"fake audio data")
         

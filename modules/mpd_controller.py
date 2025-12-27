@@ -6,17 +6,18 @@ Implements persistent connection pattern with automatic reconnection.
 
 Key Features:
 - Play/pause/stop/skip/previous controls
-- Volume control with ducking support
 - Fuzzy music search in library
 - Favorites playlist management (favorites.m3u)
 - Sleep timer with volume fade-out
 - Automatic reconnection on connection loss
-- Singleton pattern (one connection instance)
 
 MPD Connection:
 - Default: localhost:6600
 - Persistent connection with auto-reconnect
 - Thread-safe operations
+
+Note: Volume control is handled by VolumeManager (PulseAudio sink).
+MPD software volume is set to 100% at startup and never changed.
 """
 
 import os
@@ -44,26 +45,14 @@ logger = logging.getLogger(__name__)
 class MPDController:
     """
     Music Player Daemon controller with persistent connection.
-
-    Singleton pattern - only one MPD connection across the application.
     """
-
-    _instance = None
-    _lock = threading.Lock()
-
-    def __new__(cls, *args, **kwargs):
-        """Singleton pattern implementation"""
-        if not cls._instance:
-            with cls._lock:
-                if not cls._instance:
-                    cls._instance = super().__new__(cls)
-        return cls._instance
 
     def __init__(
         self,
         host: str = None,
         port: int = None,
-        music_library: str = None,
+        music_library: str = None,  # DEPRECATED: Use music_library_instance instead
+        music_library_instance: 'MusicLibrary' = None,  # NEW: Inject MusicLibrary
         debug: bool = False
     ):
         """
@@ -72,13 +61,14 @@ class MPDController:
         Args:
             host: MPD server host (default: from config)
             port: MPD server port (default: from config)
-            music_library: Music library path (default: from config)
+            music_library: Music library path (default: from config) - DEPRECATED, use music_library_instance
+            music_library_instance: Pre-configured MusicLibrary instance (recommended for dependency injection)
             debug: Enable debug logging
-        """
-        # Only initialize once (singleton)
-        if hasattr(self, '_initialized'):
-            return
 
+        Note:
+            Prefer using music_library_instance for dependency injection (better testability).
+            If not provided, MusicLibrary will be created internally (backward compatible).
+        """
         self.host = host or config.MPD_HOST
         self.port = port or config.MPD_PORT
         self.music_library = music_library or config.MUSIC_LIBRARY
@@ -92,27 +82,28 @@ class MPDController:
         self.client.idletimeout = None
 
         self._connected = False
-        self._music_library = MusicLibrary(
-            library_path=self.music_library,
-            fuzzy_threshold=config.FUZZY_MATCH_THRESHOLD,
-            phonetic_enabled=True,
-            phonetic_weight=0.6,
-            debug=debug
-        )
+
+        # Use injected MusicLibrary or create internally (backward compatible)
+        if music_library_instance is not None:
+            self._music_library = music_library_instance
+        else:
+            # Fallback: create internally
+            self._music_library = MusicLibrary(
+                library_path=self.music_library,
+                fuzzy_threshold=config.FUZZY_MATCH_THRESHOLD,
+                phonetic_enabled=True,
+                phonetic_weight=config.PHONETIC_WEIGHT,
+                debug=debug
+            )
 
         # Sleep timer state
         self._sleep_timer_thread = None
         self._sleep_timer_cancel = threading.Event()
         self._sleep_timer_lock = threading.Lock()  # Thread-safe sleep timer management
 
-        # Volume ducking state
-        self._original_volume = None
-        self._ducking_active = False
-
         if debug:
             logger.setLevel(logging.DEBUG)
 
-        self._initialized = True
         logger.info(f"MPD Controller initialized ({self.host}:{self.port})")
 
     def connect(self) -> bool:
@@ -124,7 +115,15 @@ class MPDController:
         """
         try:
             if not self._connected:
-                self.client.connect(self.host, self.port)
+                try:
+                    self.client.connect(self.host, self.port)
+                except (MPDConnectionError, ConnectionError) as conn_err:
+                    # Handle "Already connected" case (client connection persisted despite flag reset)
+                    if "Already connected" in str(conn_err):
+                        logger.debug("MPD client already connected, reusing connection")
+                    else:
+                        raise  # Re-raise other connection errors
+
                 self._connected = True
                 logger.info(f"Connected to MPD at {self.host}:{self.port}")
                 # Apply default playback modes (does not alter the current song/volume)
@@ -133,7 +132,12 @@ class MPDController:
                 if default_repeat:
                     self.set_repeat(default_repeat)
 
-                # Load music catalog from MPD database
+                # Update MPD database to pick up new files, then load catalog
+                try:
+                    self.client.update()
+                except Exception:
+                    pass  # Update is best-effort
+
                 if self._music_library.is_empty():
                     try:
                         count = self._music_library.load_from_mpd(self.client)
@@ -178,9 +182,11 @@ class MPDController:
         try:
             yield
         except (MPDConnectionError, ConnectionError, OSError) as e:
-            logger.warning(f"MPD connection lost: {e}. Reconnecting...")
-            self._connected = False
-            self.connect()
+            # Only log if we haven't already started reconnecting (avoid double logging)
+            if self._connected:
+                logger.warning(f"MPD connection lost: {e}. Reconnecting...")
+                self._connected = False
+                self.connect()
             raise  # Let caller retry if needed
 
     def _ensure_queue_seeded(self, min_songs: int = 2) -> bool:
@@ -313,8 +319,13 @@ class MPDController:
                 # If queue is empty (fresh MPD), seed so "play" actually starts music.
                 try:
                     self._ensure_queue_seeded(min_songs=1)
-                except Exception:
-                    pass
+                except (ConnectionError, TimeoutError) as e:
+                    logger.warning(f"Failed to seed queue (connection issue): {e}")
+                    # Continue anyway - play will fail gracefully if queue is empty
+                except Exception as e:
+                    logger.error(f"Unexpected error seeding queue: {e}")
+                    # Continue anyway - play will fail gracefully if queue is empty
+
                 self.client.play()
                 status = self.get_status()
                 return (True, f"Playing {status['song']}", None)
@@ -372,20 +383,31 @@ class MPDController:
         Returns:
             Tuple of (success, message)
         """
-        try:
-            with self._ensure_connection():
-                status = self.get_status()
-                if status['state'] in ('play', 'pause'):
-                    self.client.pause(1)
-                    song = status.get('song', 'unknown')
-                    logger.info(f"⏸️  Paused: {song}")
-                    return (True, f"Paused: {song}")
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                with self._ensure_connection():
+                    status = self.get_status()
+                    if status['state'] in ('play', 'pause'):
+                        self.client.pause(1)
+                        song = status.get('song', 'unknown')
+                        logger.info(f"⏸️  Paused: {song}")
+                        return (True, f"Paused: {song}")
+                    else:
+                        logger.info("⏸️  Nothing playing, pause ignored")
+                        return (True, "Nothing to pause")
+            except (MPDConnectionError, ConnectionError, OSError) as e:
+                if attempt < max_retries - 1:
+                    logger.debug(f"⏸️  Pause connection error (retry {attempt+1}/{max_retries}): {e}")
+                    self._connected = False
+                    time.sleep(0.1)
+                    continue
                 else:
-                    logger.info("⏸️  Nothing playing, pause ignored")
-                    return (True, "Nothing to pause")
-        except Exception as e:
-            logger.warning(f"⏸️  Pause failed (continuing anyway): {e}")
-            return (True, "Paused")  # Return success anyway - pause is best-effort
+                    logger.warning(f"⏸️  Pause failed after {max_retries} retries (continuing anyway): {e}")
+                    return (True, "Paused")  # Return success anyway - pause is best-effort
+            except Exception as e:
+                logger.warning(f"⏸️  Pause failed (continuing anyway): {e}")
+                return (True, "Paused")  # Return success anyway - pause is best-effort
 
     def resume(self) -> Tuple[bool, str]:
         """
@@ -542,93 +564,6 @@ class MPDController:
             logger.info(f"🎵 Now playing: {song_name}")
             return (True, f"Previous: {song_name}")
 
-    def volume_up(self, amount: int = 10) -> Tuple[bool, str]:
-        """
-        Increase volume.
-
-        Args:
-            amount: Volume increase amount (0-100)
-
-        Returns:
-            Tuple of (success, message)
-        """
-        with self._ensure_connection():
-            status = self.client.status()
-            current = int(status.get('volume', 50))
-
-            # Respect max volume limit for kid safety
-            max_vol = min(100, config.MAX_VOLUME)
-            new_volume = min(max_vol, current + amount)
-
-            self.client.setvol(new_volume)
-            logger.info(f"Volume: {current} → {new_volume}")
-
-            # Inform if we hit the limit
-            if new_volume >= max_vol and max_vol < 100:
-                return (True, f"Volume {new_volume}%. That's the maximum allowed")
-            else:
-                return (True, f"Volume {new_volume}%")
-
-    def volume_down(self, amount: int = 10) -> Tuple[bool, str]:
-        """
-        Decrease volume.
-
-        Args:
-            amount: Volume decrease amount (0-100)
-
-        Returns:
-            Tuple of (success, message)
-        """
-        with self._ensure_connection():
-            status = self.client.status()
-            current = int(status.get('volume', 50))
-            new_volume = max(0, current - amount)
-            self.client.setvol(new_volume)
-            logger.info(f"Volume: {current} → {new_volume}")
-            return (True, f"Volume {new_volume}%")
-
-    def duck_volume(self, duck_to: int = 20) -> bool:
-        """
-        Duck volume (temporarily lower for voice input).
-
-        Args:
-            duck_to: Target volume percentage during ducking
-
-        Returns:
-            True if ducked successfully
-        """
-        try:
-            with self._ensure_connection():
-                status = self.client.status()
-                self._original_volume = int(status.get('volume', 50))
-                self.client.setvol(duck_to)
-                self._ducking_active = True
-                logger.info(f"Volume ducked: {self._original_volume} → {duck_to}")
-                return True
-        except Exception as e:
-            logger.error(f"Failed to duck volume: {e}")
-            return False
-
-    def restore_volume(self) -> bool:
-        """
-        Restore volume after ducking.
-
-        Returns:
-            True if restored successfully
-        """
-        try:
-            if self._ducking_active and self._original_volume is not None:
-                with self._ensure_connection():
-                    self.client.setvol(self._original_volume)
-                    logger.info(f"Volume restored: {self._original_volume}")
-                    self._ducking_active = False
-                    self._original_volume = None
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Failed to restore volume: {e}")
-            return False
-
     def search_music(self, query: str) -> Optional[Tuple[str, float]]:
         """
         Fuzzy search music library (respects threshold).
@@ -740,14 +675,6 @@ class MPDController:
         Returns:
             Tuple of (success, message)
         """
-        # Cancel existing timer
-        with self._sleep_timer_lock:
-            if self._sleep_timer_thread and self._sleep_timer_thread.is_alive():
-                self._sleep_timer_cancel.set()
-                self._sleep_timer_thread.join(timeout=1)
-
-            self._sleep_timer_cancel.clear()
-
         def sleep_timer_worker(duration_minutes):
             """Worker thread for sleep timer"""
             # Sleep for (duration - 30 seconds)
@@ -779,8 +706,20 @@ class MPDController:
             except Exception as e:
                 logger.error(f"Sleep timer error: {e}")
 
-        # Start timer thread (protect against concurrent set_sleep_timer calls)
+        # Atomic cancel+start operation (prevents race condition)
         with self._sleep_timer_lock:
+            # Cancel existing timer
+            if self._sleep_timer_thread and self._sleep_timer_thread.is_alive():
+                self._sleep_timer_cancel.set()
+                self._sleep_timer_thread.join(timeout=2.0)  # Longer timeout for graceful exit
+
+                # Warn if thread didn't exit cleanly
+                if self._sleep_timer_thread.is_alive():
+                    logger.warning("Sleep timer thread did not exit cleanly (still running after 2s)")
+                    # Thread will eventually exit on next cancel check
+
+            # Reset cancel event and start new timer (still holding lock)
+            self._sleep_timer_cancel.clear()
             self._sleep_timer_thread = threading.Thread(
                 target=sleep_timer_worker,
                 args=(minutes,),

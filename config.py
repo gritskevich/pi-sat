@@ -14,6 +14,7 @@ FORMAT = 'paInt16'
 CHANNELS = 1
 RATE = 48000
 SAMPLE_RATE = 16000
+DEBUG_DUMMY_AUDIO = os.getenv('DEBUG_DUMMY_AUDIO', 'false').lower() == 'true'  # Use synthetic audio in debug if explicitly enabled
 INPUT_DEVICE_NAME = None  # use system default input device
 OUTPUT_ALSA_DEVICE = os.getenv('OUTPUT_ALSA_DEVICE', os.getenv('PIPER_OUTPUT_DEVICE', 'pulse'))  # ALSA device for beep/audio_player (aplay -D)
 PLAY_WAKE_SOUND = True
@@ -30,15 +31,21 @@ WAKE_SOUND_SKIP_SECONDS = float(os.getenv('WAKE_SOUND_SKIP', '0.0'))  # Seconds 
 # Wake word settings
 WAKE_WORD_MODELS = ['alexa_v0.1']
 INFERENCE_FRAMEWORK = 'tflite'  # tflite (faster on Linux) or onnx (broader compatibility)
-THRESHOLD = 0.25  # Detection threshold (0-1). Lower = more sensitive, higher = fewer false positives
+THRESHOLD = float(os.getenv('WAKE_WORD_THRESHOLD', '0.20'))  # Detection threshold (0-1). Lower = more sensitive, higher = fewer false positives
+                                                               # 0.50 = good balance, rejects TTS echoes (0.3-0.4)
 LOW_CONFIDENCE_THRESHOLD = 0.1  # Debug threshold for logging low-confidence detections
 WAKE_WORD_COOLDOWN = float(os.getenv('WAKE_WORD_COOLDOWN', '0.5'))  # Seconds to ignore new activations after one fires
+TTS_COOLDOWN_SECONDS = float(os.getenv('TTS_COOLDOWN_SECONDS', '1.5'))  # Seconds to wait after TTS before enabling wake word (prevents self-triggering)
 
-# OpenWakeWord optimizations (reduce false positives)
+# Wake word model reset settings (prevents state carry-over between detections)
+WAKE_WORD_MODEL_RESET_SILENCE_CHUNKS = int(os.getenv('WAKE_WORD_RESET_CHUNKS', '25'))  # Silence chunks to feed for reset
+WAKE_WORD_MODEL_RESET_ITERATIONS = int(os.getenv('WAKE_WORD_RESET_ITERATIONS', '5'))   # Reset iteration count
+
+# OpenWakeWord optimizations (reduce false positives, handle background noise/music)
 VAD_THRESHOLD = float(os.getenv('VAD_THRESHOLD', '0.6'))  # Voice Activity Detection threshold (0-1)
                                                             # Requires speech detected by Silero VAD to trigger
                                                             # 0.6 = good balance, 0.7+ = very strict
-ENABLE_SPEEX_NOISE_SUPPRESSION = os.getenv('ENABLE_SPEEX', 'false').lower() == 'true'  # Noise suppression (Linux only)
+ENABLE_SPEEX_NOISE_SUPPRESSION = os.getenv('ENABLE_SPEEX', 'true').lower() == 'true'  # SpeexDSP noise reduction (recommended for music/noise)
 
 # VAD settings
 VAD_LEVEL = 2
@@ -48,9 +55,15 @@ MAX_RECORDING_TIME = 10.0  # maximum seconds to record (cut off at 10s)
 
 # Adaptive VAD settings (energy-based detection)
 # Tune these based on your environment (use ./pi-sat.sh calibrate_vad)
-VAD_SPEECH_MULTIPLIER = float(os.getenv('VAD_SPEECH_MULTIPLIER', '1.3'))  # Speech energy multiplier vs noise floor (1.3 = noisy, 2.0 = quiet)
-VAD_SILENCE_DURATION = float(os.getenv('VAD_SILENCE_DURATION', '1.2'))  # Seconds of silence to end recording (0.8-1.5s recommended)
+VAD_SPEECH_MULTIPLIER = float(os.getenv('VAD_SPEECH_MULTIPLIER', '1.25'))  # Speech energy multiplier vs noise floor (1.25 = sensitive/low mic, 1.5 = balanced, 2.0 = quiet room)
+VAD_SILENCE_DURATION = float(os.getenv('VAD_SILENCE_DURATION', '1.0'))  # Seconds of silence to end recording (0.8-1.5s recommended)
 VAD_MIN_SPEECH_DURATION = float(os.getenv('VAD_MIN_SPEECH_DURATION', '0.5'))  # Minimum speech duration in seconds
+VAD_CONSECUTIVE_SILENCE_FRAMES = int(os.getenv('VAD_CONSECUTIVE_SILENCE_FRAMES', '30'))  # Consecutive silent frames to end (30 frames @ 30ms = 0.9s)
+
+# Audio Normalization (command recording only, NOT wake word detection)
+# Normalizes volume for close vs far speech - improves STT accuracy
+AUDIO_NORMALIZATION_ENABLED = os.getenv('AUDIO_NORMALIZATION_ENABLED', 'true').lower() == 'true'
+AUDIO_TARGET_RMS = float(os.getenv('AUDIO_TARGET_RMS', '3000.0'))  # Target level (3000 = optimal for Whisper STT)
 
 # Hailo STT settings
 HAILO_STT_MODEL = "whisper-base"  # whisper-tiny, whisper-base
@@ -93,17 +106,26 @@ BUTTON_LONG_PRESS_DURATION = float(os.getenv('BUTTON_LONG_PRESS_DURATION', '2.0'
 # Intent Engine settings
 FUZZY_MATCH_THRESHOLD = int(os.getenv('FUZZY_MATCH_THRESHOLD', '35'))  # 0-100 (lowered for phonetic matching)
 FUZZY_USE_LEVENSHTEIN = os.getenv('FUZZY_USE_LEVENSHTEIN', 'true').lower() == 'true'
+PHONETIC_WEIGHT = float(os.getenv('PHONETIC_WEIGHT', '0.6'))  # Weight for phonetic vs text matching (0.0-1.0)
 
-# Volume Control settings (SIMPLIFIED - Single Master Volume via PulseAudio/PipeWire)
-# All audio (music, TTS, beep) uses the same PulseAudio sink volume via pactl
-# We do NOT touch ALSA PCM hardware volume (amixer confuses PipeWire session managers)
-# We ONLY control: MPD software volume (100% fixed) + PulseAudio sink (variable)
-MASTER_VOLUME = int(os.getenv('MASTER_VOLUME', '15'))  # Master volume on startup (0-100)
-VOLUME_STEP = int(os.getenv('VOLUME_STEP', '5'))  # Percentage (0-100) for volume up/down commands
-VOLUME_FADE_DURATION = float(os.getenv('VOLUME_FADE_DURATION', '30.0'))  # seconds for sleep timer fade
+# ============================================================================
+# VOLUME CONTROL - Single Master Volume Architecture
+# ============================================================================
+# Raspberry Pi 5 + PipeWire: Single volume control via PulseAudio sink (pactl)
+# - MPD software volume: Fixed at 100% (set once at startup, never changed)
+# - PulseAudio sink: THE ONLY runtime volume control (via VolumeManager)
+# - ALSA PCM hardware: Left untouched (amixer confuses PipeWire)
+#
+# All audio (music, TTS, wake beep) shares the same master volume.
+# Volume commands (up/down) control the PulseAudio sink only.
+# ============================================================================
 
-# Kid Safety & Parental Control settings
-MAX_VOLUME = int(os.getenv('MAX_VOLUME', '50'))  # Maximum allowed volume (0-100) for kid safety
+MASTER_VOLUME = int(os.getenv('MASTER_VOLUME', '15'))  # Startup volume (0-100)
+VOLUME_STEP = int(os.getenv('VOLUME_STEP', '5'))  # Step for up/down commands (0-100)
+MAX_VOLUME = int(os.getenv('MAX_VOLUME', '50'))  # Kid safety limit (0-100)
+VOLUME_FADE_DURATION = float(os.getenv('VOLUME_FADE_DURATION', '30.0'))  # Sleep timer fade (seconds)
+
+# Bedtime & Parental Controls
 BEDTIME_ENABLED = os.getenv('BEDTIME_ENABLED', 'true').lower() == 'true'
 BEDTIME_START = os.getenv('BEDTIME_START', '20:00')  # Quiet time start (24h format: HH:MM) - default 8pm
 BEDTIME_END = os.getenv('BEDTIME_END', '08:00')  # Quiet time end (24h format: HH:MM) - default 8am

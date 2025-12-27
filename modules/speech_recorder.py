@@ -3,6 +3,7 @@ import pyaudio
 import config
 from .logging_utils import setup_logger, log_info, log_success, log_warning, log_error, log_debug, log_audio
 from .audio_devices import find_input_device_index
+from .audio_normalizer import AudioNormalizer
 
 try:
     import webrtcvad  # type: ignore
@@ -34,6 +35,16 @@ class SpeechRecorder:
             self.vad = _FallbackVAD(config.VAD_LEVEL)
         else:
             self.vad = webrtcvad.Vad(config.VAD_LEVEL)
+
+        # Audio normalization (handles variable microphone distance)
+        self.normalization_enabled = config.AUDIO_NORMALIZATION_ENABLED
+        if self.normalization_enabled:
+            self.normalizer = AudioNormalizer(
+                target_rms=config.AUDIO_TARGET_RMS,
+                debug=debug
+            )
+        else:
+            self.normalizer = None
 
         self.p = pyaudio.PyAudio() if debug else None
         
@@ -172,194 +183,18 @@ class SpeechRecorder:
         if is_speech:
             self.recording_buffer.append(frame)
     
-    def record_from_stream(self, stream, input_rate=48000, max_duration=10.0, skip_initial_seconds=0.0):
-        """
-        Record from existing stream with adaptive silence detection.
-
-        Uses energy-based VAD with adaptive threshold:
-        - Measures ambient noise level during calibration phase
-        - Detects speech based on energy relative to noise floor
-        - Smart end-of-speech detection with trailing silence
-
-        Args:
-            stream: Open PyAudio stream
-            input_rate: Stream sample rate (default: 48000)
-            max_duration: Maximum recording duration in seconds
-            skip_initial_seconds: Discard this many seconds at start (e.g., 0.7 for wake sound)
-                                  Allows recording to start immediately without blocking delay
-
-        Returns:
-            Audio data as 16 kHz mono int16 PCM bytes (raw, no WAV header)
-        """
-        import time
-
-        frame_duration_ms = int(config.FRAME_DURATION)
-        frame_duration_s = frame_duration_ms / 1000.0
-        frames_per_second = 1.0 / frame_duration_s
-
-        # Work in fixed-size frames so WebRTC VAD receives valid 10/20/30ms chunks.
-        in_frame_samples = max(1, int(round(float(input_rate) * frame_duration_s)))
-        out_rate = 16000
-        out_frame_samples = max(1, int(round(float(out_rate) * frame_duration_s)))
-
-        # Adaptive parameters from config
-        speech_threshold_multiplier = float(config.VAD_SPEECH_MULTIPLIER)
-        silence_frames_threshold = int(float(config.VAD_SILENCE_DURATION) * frames_per_second)
-        min_speech_frames = int(float(config.VAD_MIN_SPEECH_DURATION) * frames_per_second)
-
-        # Skip frames at the start (wake sound contamination)
-        skip_frames = int(round(float(skip_initial_seconds) * frames_per_second)) if skip_initial_seconds > 0 else 0
-        frames_skipped = 0
-
-        # Calibration phase (after skip): measure noise floor for ~0.3s
-        calibration_frames = max(1, int(round(0.3 * frames_per_second)))
-        calibration_energy: list[float] = []
-        noise_floor = 0.0
-        speech_threshold = 0.0
-
-        # Pre-roll to avoid clipping the start of speech
-        pre_roll_max = max(1, calibration_frames)
-        pre_roll_frames: list[bytes] = []
-
-        input_buf = np.zeros(0, dtype=np.int16)
-        output_frames: list[bytes] = []
-        speech_started = False
-        speech_frame_count = 0
-        silence_frames = 0
-
-        processed_frames_total = 0
-        max_frames_total = int(round(float(max_duration) * frames_per_second))
-        max_reached = False
-
-        if skip_initial_seconds > 0:
-            log_audio(self.logger, f"🎤 Recording (skip {skip_initial_seconds:.2f}s, frame {frame_duration_ms}ms)...")
-        else:
-            log_audio(self.logger, f"🎤 Recording (frame {frame_duration_ms}ms)...")
-
-        def _resample_frame_to_16k(frame_in: np.ndarray) -> np.ndarray:
-            if input_rate == out_rate:
-                if frame_in.size == out_frame_samples:
-                    return frame_in
-                # Pad/truncate defensively if rates match but rounding differs.
-                if frame_in.size > out_frame_samples:
-                    return frame_in[:out_frame_samples]
-                pad = np.zeros(out_frame_samples - frame_in.size, dtype=np.int16)
-                return np.concatenate([frame_in, pad])
-
-            src = frame_in.astype(np.float32)
-            x_old = np.linspace(0.0, 1.0, num=src.size, dtype=np.float32)
-            x_new = np.linspace(0.0, 1.0, num=out_frame_samples, dtype=np.float32)
-            resampled = np.interp(x_new, x_old, src)
-            return np.clip(resampled, -32768, 32767).astype(np.int16)
-
-        while True:
-            try:
-                data = stream.read(config.CHUNK, exception_on_overflow=False)
-            except Exception as e:
-                log_error(self.logger, f"Recording error (stream.read): {e}")
-                break
-
-            audio_in = np.frombuffer(data, dtype=np.int16)
-            if audio_in.size == 0:
-                continue
-
-            input_buf = np.concatenate((input_buf, audio_in))
-
-            while input_buf.size >= in_frame_samples:
-                frame_in = input_buf[:in_frame_samples]
-                input_buf = input_buf[in_frame_samples:]
-
-                if frames_skipped < skip_frames:
-                    frames_skipped += 1
-                    processed_frames_total += 1
-                    if max_frames_total > 0 and processed_frames_total >= max_frames_total:
-                        max_reached = True
-                        break
-                    continue
-
-                processed_frames_total += 1
-                if max_frames_total > 0 and processed_frames_total >= max_frames_total:
-                    max_reached = True
-
-                frame_16k = _resample_frame_to_16k(frame_in)
-                energy = float(np.sqrt(np.mean(frame_16k.astype(np.float32) ** 2)))
-
-                # Calibration (keep frames in pre-roll, don't drop audio)
-                if len(calibration_energy) < calibration_frames:
-                    calibration_energy.append(energy)
-                    pre_roll_frames.append(frame_16k.tobytes())
-                    if len(pre_roll_frames) > pre_roll_max:
-                        pre_roll_frames.pop(0)
-
-                    if len(calibration_energy) == calibration_frames:
-                        noise_floor = float(np.median(calibration_energy))
-                        if noise_floor < 1.0:
-                            noise_floor = 1.0
-                        speech_threshold = noise_floor * speech_threshold_multiplier
-                        log_audio(
-                            self.logger,
-                            f"📊 Noise floor: {noise_floor:.1f} RMS → Speech threshold: {speech_threshold:.1f} RMS ({speech_threshold_multiplier}x)",
-                        )
-                    continue
-
-                # WebRTC VAD (16k, 10/20/30ms frames only)
-                try:
-                    is_speech_vad = self.vad.is_speech(frame_16k.tobytes(), out_rate)
-                except (ValueError, TypeError, Exception) as e:
-                    # Invalid frame size/rate or VAD error - treat as non-speech
-                    is_speech_vad = False
-
-                is_speech_energy = energy > speech_threshold
-                is_speech = is_speech_vad and is_speech_energy
-
-                if self.debug and (speech_started or is_speech):
-                    log_debug(
-                        self.logger,
-                        f"Energy: {energy:.1f}, Thresh: {speech_threshold:.1f}, VAD: {is_speech_vad}, EnergyOK: {is_speech_energy}, Speech: {is_speech}",
-                    )
-
-                if not speech_started:
-                    # Maintain rolling pre-roll until speech starts.
-                    pre_roll_frames.append(frame_16k.tobytes())
-                    if len(pre_roll_frames) > pre_roll_max:
-                        pre_roll_frames.pop(0)
-
-                if is_speech:
-                    if not speech_started:
-                        speech_started = True
-                        output_frames.extend(pre_roll_frames)
-                        pre_roll_frames.clear()
-                        log_audio(self.logger, f"🗣️  Speech detected (energy: {energy:.1f} > {speech_threshold:.1f})")
-                    output_frames.append(frame_16k.tobytes())
-                    speech_frame_count += 1
-                    silence_frames = 0
-                else:
-                    if speech_started:
-                        output_frames.append(frame_16k.tobytes())
-                        silence_frames += 1
-
-                # End detection - enough silence after minimum speech
-                if speech_started and silence_frames >= silence_frames_threshold and speech_frame_count >= min_speech_frames:
-                    recorded_s = processed_frames_total * frame_duration_s
-                    log_audio(self.logger, f"Recording complete: {recorded_s:.1f}s")
-                    return b"".join(output_frames)
-
-                if max_reached:
-                    break
-
-            if max_reached:
-                recorded_s = processed_frames_total * frame_duration_s
-                log_audio(self.logger, f"🎤 Max recording time reached ({recorded_s:.1f}s)")
-                break
-
-        if not speech_started:
-            return b""
-
-        return b"".join(output_frames)
 
     def record_command(self):
-        """Record a command using microphone input with VAD"""
-        if self.debug:
+        """
+        Record voice command with immediate start and post-processing VAD.
+
+        Strategy:
+        - Records immediately (no calibration delay)
+        - Captures audio until silence detected or max duration
+        - Post-processes to trim silence from beginning/end
+        - Returns clean speech audio
+        """
+        if self.debug and config.DEBUG_DUMMY_AUDIO:
             # Return a dummy audio buffer with some speech-like content for testing
             # Create a simple sine wave to simulate speech
             import math
@@ -379,76 +214,265 @@ class SpeechRecorder:
         
         import pyaudio
         import time
-        
-        # Audio settings
-        chunk = config.CHUNK
-        format = pyaudio.paInt16
-        channels = config.CHANNELS
-        rate = config.RATE
-        silence_threshold = config.SILENCE_THRESHOLD
-        
-        p = pyaudio.PyAudio()
-        input_index = find_input_device_index(getattr(config, "INPUT_DEVICE_NAME", None))
-        stream = p.open(
-            format=format,
-            channels=channels,
-            rate=rate,
-            input=True,
-            input_device_index=input_index if input_index is not None else None,
-            frames_per_buffer=chunk
-        )
-        
+
+        # Initialize to None for safe cleanup
+        p = None
+        stream = None
         frames = []
-        silence_count = 0
-        frame_duration = config.FRAME_DURATION / 1000.0  # Convert to seconds
-        silence_frames = int(silence_threshold / frame_duration)
-        min_recording_time = 2.0  # Minimum 2 seconds recording
-        max_recording_time = config.MAX_RECORDING_TIME  # Maximum recording time
-        start_time = time.time()
-        
-        log_audio(self.logger, "🎤 Starting microphone recording...")
-        
+
         try:
-            while True:
-                data = stream.read(chunk)
-                frames.append(data)
-                
-                # Check for silence using VAD
+            # Audio settings
+            format = pyaudio.paInt16
+            channels = config.CHANNELS
+            silence_threshold = config.SILENCE_THRESHOLD
+            target_rate = config.SAMPLE_RATE  # Hailo Whisper expects 16kHz mono
+
+            # Use frame_duration-sized chunks so VAD timing matches real audio duration
+            frame_duration = config.FRAME_DURATION / 1000.0  # seconds
+
+            p = pyaudio.PyAudio()
+            input_index = find_input_device_index(getattr(config, "INPUT_DEVICE_NAME", None))
+
+            # Prefer 16kHz capture for direct STT input; fallback to device default if unsupported
+            rate = target_rate
+            chunk = int(rate * frame_duration)
+            try:
+                stream = p.open(
+                    format=format,
+                    channels=channels,
+                    rate=rate,
+                    input=True,
+                    input_device_index=input_index if input_index is not None else None,
+                    frames_per_buffer=chunk
+                )
+            except Exception:
                 try:
-                    is_speech = self.vad.is_speech(data, rate)
-                except (ValueError, TypeError, Exception) as e:
+                    info = p.get_default_input_device_info()
+                    rate = int(info.get("defaultSampleRate", config.RATE))
+                except Exception:
+                    rate = config.RATE
+                chunk = int(rate * frame_duration)
+                stream = p.open(
+                    format=format,
+                    channels=channels,
+                    rate=rate,
+                    input=True,
+                    input_device_index=input_index if input_index is not None else None,
+                    frames_per_buffer=chunk
+                )
+
+            silence_count = 0
+            speech_detected = False
+            silence_frames = int(silence_threshold / frame_duration)
+            min_recording_time = 1.5  # Minimum 1.5s to give user time to speak
+            max_recording_time = config.MAX_RECORDING_TIME
+            start_time = time.time()
+
+            # For VAD: need 16kHz frames
+            vad_rate = 16000
+            frame_size_16k = int(vad_rate * frame_duration)
+
+            log_audio(self.logger, "🎤 Recording (immediate start)...")
+
+            while True:
+                data = stream.read(chunk, exception_on_overflow=False)
+                frames.append(data)
+
+                # Resample to 16kHz for VAD if needed
+                if rate != vad_rate:
+                    audio_48k = np.frombuffer(data, dtype=np.int16)
+                    # Simple linear interpolation to 16kHz
+                    ratio = vad_rate / float(rate)
+                    new_len = int(len(audio_48k) * ratio)
+                    x_old = np.linspace(0, 1, len(audio_48k), dtype=np.float32)
+                    x_new = np.linspace(0, 1, new_len, dtype=np.float32)
+                    audio_16k = np.interp(x_new, x_old, audio_48k.astype(np.float32))
+                    audio_16k = np.clip(audio_16k, -32768, 32767).astype(np.int16)
+
+                    # Ensure exact frame size for VAD
+                    if len(audio_16k) < frame_size_16k:
+                        audio_16k = np.pad(audio_16k, (0, frame_size_16k - len(audio_16k)))
+                    elif len(audio_16k) > frame_size_16k:
+                        audio_16k = audio_16k[:frame_size_16k]
+
+                    vad_data = audio_16k.tobytes()
+                else:
+                    vad_data = data
+
+                # Check for silence using VAD (16kHz data)
+                try:
+                    is_speech = self.vad.is_speech(vad_data, vad_rate)
+                except (ValueError, TypeError) as e:
                     # Invalid frame or VAD error - treat as non-speech
+                    if self.debug:
+                        log_debug(self.logger, f"VAD error: {e}")
                     is_speech = False
-                
+                except Exception as e:
+                    # Unexpected VAD error - log always (not just in debug)
+                    log_warning(self.logger, f"Unexpected VAD error: {e}")
+                    is_speech = False
+
                 if is_speech:
+                    if not speech_detected:
+                        speech_detected = True
+                        log_audio(self.logger, "🗣️  Speech detected")
                     silence_count = 0
                 else:
                     silence_count += 1
-                
-                # Only stop if we've recorded minimum time AND detected enough silence
+
+                # Stop conditions
                 elapsed_time = time.time() - start_time
-                if elapsed_time >= min_recording_time and silence_count >= silence_frames:
+
+                # Only stop on silence after minimum recording time
+                if elapsed_time >= min_recording_time and speech_detected and silence_count >= silence_frames:
+                    log_audio(self.logger, f"🎤 Recording complete: {elapsed_time:.1f}s ({len(frames)} frames)")
                     break
-                
-                # Also stop if we've reached maximum recording time
+
+                # Hard stop at max recording time
                 if elapsed_time >= max_recording_time:
-                    log_audio(self.logger, f"🎤 Maximum recording time reached ({max_recording_time}s)")
+                    log_audio(self.logger, f"🎤 Max time reached ({max_recording_time}s, {len(frames)} frames)")
                     break
-            
-            log_audio(self.logger, f"🎤 Recording complete: {len(frames)} frames ({elapsed_time:.1f}s)")
-            
+
         except KeyboardInterrupt:
             log_warning(self.logger, "🎤 Recording interrupted")
+        except Exception as e:
+            log_error(self.logger, f"Recording error: {e}")
         finally:
-            stream.stop_stream()
-            stream.close()
-            p.terminate()
-        
-        if frames:
-            return b''.join(frames)
-        else:
+            # Safe cleanup - check existence before closing
+            if stream:
+                try:
+                    stream.stop_stream()
+                    stream.close()
+                except Exception as e:
+                    log_warning(self.logger, f"Error closing stream: {e}")
+            if p:
+                try:
+                    p.terminate()
+                except Exception as e:
+                    log_warning(self.logger, f"Error terminating PyAudio: {e}")
+
+        if not frames:
             return b""
-    
+
+        # Join all frames
+        raw_audio = b''.join(frames)
+
+        # Ensure 16kHz mono int16 for Hailo Whisper
+        audio_rate = rate
+        if rate != target_rate and raw_audio:
+            audio_array = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32)
+            if audio_array.size > 0:
+                ratio = target_rate / float(rate)
+                new_len = max(1, int(round(audio_array.size * ratio)))
+                x_old = np.linspace(0.0, 1.0, num=audio_array.size, dtype=np.float32)
+                x_new = np.linspace(0.0, 1.0, num=new_len, dtype=np.float32)
+                resampled = np.interp(x_new, x_old, audio_array)
+                raw_audio = np.clip(resampled, -32768, 32767).astype(np.int16).tobytes()
+                audio_rate = target_rate
+
+        # TEMPORARY: Skip trimming - return full recording
+        # The VAD-based trimming might be too aggressive
+        # Post-process: trim silence from beginning and end
+        # audio_data = self._trim_silence(raw_audio, rate)
+        audio_data = raw_audio
+
+        if self.debug:
+            duration = len(audio_data) / (audio_rate * 2)  # 2 bytes per sample (int16)
+            log_debug(self.logger, f"Raw audio: {len(audio_data)} bytes = {duration:.2f}s at {audio_rate}Hz")
+
+        # Apply audio normalization if enabled
+        if self.normalization_enabled and self.normalizer and audio_data:
+            audio_data = self.normalizer.normalize_audio(audio_data)
+            if self.debug:
+                duration_normalized = len(audio_data) / (audio_rate * 2)
+                log_debug(self.logger, f"After normalization: {len(audio_data)} bytes = {duration_normalized:.2f}s")
+
+        return audio_data
+
+    def _trim_silence(self, audio_bytes: bytes, sample_rate: int) -> bytes:
+        """
+        Trim silence from beginning and end of recording using post-processing VAD.
+
+        Args:
+            audio_bytes: Raw audio data
+            sample_rate: Sample rate (Hz)
+
+        Returns:
+            Trimmed audio data
+        """
+        if not audio_bytes:
+            return b""
+
+        # Convert to numpy array for processing
+        audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+
+        # Process in VAD-compatible frames (VAD requires 16kHz)
+        frame_duration_ms = config.FRAME_DURATION
+        frame_size = int(sample_rate * frame_duration_ms / 1000)
+        vad_rate = 16000
+        vad_frame_size = int(vad_rate * frame_duration_ms / 1000)
+
+        # Find first and last speech frames
+        first_speech = None
+        last_speech = None
+
+        for i in range(0, len(audio_array), frame_size):
+            frame = audio_array[i:i+frame_size]
+            if len(frame) < frame_size:
+                # Pad last frame if needed
+                frame = np.pad(frame, (0, frame_size - len(frame)))
+
+            # Resample to 16kHz for VAD if needed
+            if sample_rate != vad_rate:
+                ratio = vad_rate / float(sample_rate)
+                new_len = int(len(frame) * ratio)
+                x_old = np.linspace(0, 1, len(frame), dtype=np.float32)
+                x_new = np.linspace(0, 1, new_len, dtype=np.float32)
+                frame_16k = np.interp(x_new, x_old, frame.astype(np.float32))
+                frame_16k = np.clip(frame_16k, -32768, 32767).astype(np.int16)
+
+                # Ensure exact frame size
+                if len(frame_16k) < vad_frame_size:
+                    frame_16k = np.pad(frame_16k, (0, vad_frame_size - len(frame_16k)))
+                elif len(frame_16k) > vad_frame_size:
+                    frame_16k = frame_16k[:vad_frame_size]
+
+                vad_frame = frame_16k.tobytes()
+            else:
+                vad_frame = frame.tobytes()
+
+            try:
+                is_speech = self.vad.is_speech(vad_frame, vad_rate)
+            except:
+                is_speech = False
+
+            if is_speech:
+                if first_speech is None:
+                    first_speech = i
+                last_speech = i + frame_size
+
+        # If no speech found, return original audio (VAD might have failed)
+        if first_speech is None:
+            if self.debug:
+                log_debug(self.logger, "No speech detected in post-processing trim - returning full recording")
+            return audio_bytes
+
+        # Add generous padding around speech (300ms before, 200ms after)
+        padding_before = int(sample_rate * 0.3)
+        padding_after = int(sample_rate * 0.2)
+        first_speech = max(0, first_speech - padding_before)
+        last_speech = min(len(audio_array), last_speech + padding_after)
+
+        # Trim and return
+        trimmed = audio_array[first_speech:last_speech]
+
+        if self.debug:
+            original_duration = len(audio_array) / sample_rate
+            trimmed_duration = len(trimmed) / sample_rate
+            log_debug(self.logger, f"Trimmed: {original_duration:.2f}s → {trimmed_duration:.2f}s")
+
+        return trimmed.tobytes()
+
     def __del__(self):
         if self.p:
             self.p.terminate()

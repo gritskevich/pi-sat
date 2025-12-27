@@ -4,7 +4,7 @@ import config
 
 
 def test_orchestrator_delegates_with_skip_seconds():
-    """Orchestrator should pass WAKE_SOUND_SKIP_SECONDS into command processing."""
+    """Orchestrator delegates to command processor without stream context."""
     from modules.orchestrator import Orchestrator
 
     command_processor = Mock()
@@ -15,12 +15,9 @@ def test_orchestrator_delegates_with_skip_seconds():
         debug=True,
     )
 
-    stream = Mock()
-    orchestrator._on_wake_word_detected(stream=stream, input_rate=48000)
+    # No stream context passed - command processor creates its own
+    orchestrator._on_wake_word_detected()
 
-    command_processor.process_command.assert_called_once_with(
-        stream=stream,
-        input_rate=48000,
-        skip_initial_seconds=config.WAKE_SOUND_SKIP_SECONDS,
-    )
+    # Command processor called with no parameters (creates fresh stream internally)
+    command_processor.process_command.assert_called_once_with()
 
