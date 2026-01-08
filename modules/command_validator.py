@@ -1,31 +1,14 @@
-"""
-Command Validator - Domain Service for Command Validation
-
-DDD Domain Service that validates commands before execution and provides
-smart TTS feedback in French.
-
-Architecture:
-- Domain Service (not tied to infrastructure)
-- Returns ValidationResult value object
-- Separates validation logic from execution logic
-- Provides rich French feedback for users
-"""
-
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
 from modules.interfaces import Intent
 from modules.logging_utils import setup_logger
+from modules.response_library import ResponseLibrary
 
 logger = setup_logger(__name__)
 
 
 @dataclass
 class ValidationResult:
-    """
-    Value Object representing validation outcome.
-
-    Immutable result of command validation with rich feedback.
-    """
     is_valid: bool
     feedback_message: str  # French TTS message to speak
     validated_params: Dict[str, Any]  # Validated/normalized parameters
@@ -33,7 +16,6 @@ class ValidationResult:
 
     @staticmethod
     def valid(message: str, params: Dict[str, Any], confidence: float = 1.0) -> 'ValidationResult':
-        """Create valid result."""
         return ValidationResult(
             is_valid=True,
             feedback_message=message,
@@ -43,7 +25,6 @@ class ValidationResult:
 
     @staticmethod
     def invalid(message: str) -> 'ValidationResult':
-        """Create invalid result."""
         return ValidationResult(
             is_valid=False,
             feedback_message=message,
@@ -53,134 +34,21 @@ class ValidationResult:
 
 
 class CommandValidator:
-    """
-    Domain Service for command validation.
-
-    Validates commands before execution and provides smart French feedback.
-    Follows DDD principles:
-    - Domain logic separate from infrastructure
-    - Rich domain language (French responses)
-    - Value objects for results
-    """
-
     def __init__(self, music_library=None, language: str = 'fr', debug: bool = False):
-        """
-        Initialize command validator.
-
-        Args:
-            music_library: MusicLibrary instance for catalog validation
-            language: Response language ('fr' or 'en')
-            debug: Enable debug logging
-        """
         self.music_library = music_library
         self.language = language
         self.debug = debug
         self.logger = setup_logger(__name__, debug=debug)
-
-        # French validation messages
-        self._messages_fr = {
-            # Play music validation
-            'playing_song': "D'accord, je joue {song}",
-            'playing_artist': "D'accord, je joue {artist}",
-            'playing_with_confidence': "Je pense que tu veux écouter {song}",
-            'no_music_found': "Désolé, je n'ai pas trouvé {query} dans ta bibliothèque",
-            'empty_library': "Ta bibliothèque musicale est vide",
-
-            # Simple controls validation
-            'pausing': "D'accord, je mets en pause",
-            'resuming': "Je reprends la musique",
-            'stopping': "D'accord, j'arrête",
-            'next_song': "Chanson suivante",
-            'previous_song': "Chanson précédente",
-
-            # Volume validation
-            'volume_up': "J'augmente le volume",
-            'volume_down': "Je baisse le volume",
-            'set_volume': "Je mets le volume à {volume}%",
-            'volume_too_high': "Le volume maximum est {max_volume}%, je mets à {volume}%",
-            'invalid_volume': "Désolé, je n'ai pas compris le niveau de volume",
-
-            # Favorites validation
-            'adding_favorite': "D'accord, j'ajoute aux favoris",
-            'playing_favorites': "Je joue tes favoris",
-
-            # Sleep timer validation
-            'sleep_timer': "D'accord, j'arrête dans {minutes} minutes",
-            'invalid_duration': "Désolé, je n'ai pas compris la durée",
-
-            # Repeat/Shuffle validation
-            'repeat_on': "D'accord, je répète",
-            'repeat_off': "D'accord, j'arrête de répéter",
-            'shuffle_on': "D'accord, je mélange",
-            'shuffle_off': "D'accord, j'arrête de mélanger",
-
-            # Queue validation
-            'play_next': "D'accord, {song} sera joué ensuite",
-            'add_to_queue': "D'accord, j'ajoute {song} à la file",
-
-            # Alarm validation
-            'alarm_set': "D'accord, alarme à {time}",
-            'alarm_cancelled': "Alarme annulée",
-            'invalid_time': "Désolé, je n'ai pas compris l'heure",
-
-            # Errors
-            'unknown_command': "Désolé, je n'ai pas compris",
-            'validation_error': "Désolé, il y a un problème",
-        }
-
-        # English validation messages
-        self._messages_en = {
-            'playing_song': "Okay, playing {song}",
-            'playing_artist': "Okay, playing {artist}",
-            'playing_with_confidence': "I think you want to listen to {song}",
-            'no_music_found': "Sorry, I couldn't find {query} in your library",
-            'empty_library': "Your music library is empty",
-            'pausing': "Okay, pausing",
-            'resuming': "Resuming music",
-            'stopping': "Okay, stopping",
-            'next_song': "Next song",
-            'previous_song': "Previous song",
-            'volume_up': "Volume up",
-            'volume_down': "Volume down",
-            'set_volume': "Setting volume to {volume}%",
-            'volume_too_high': "Maximum volume is {max_volume}%, setting to {volume}%",
-            'invalid_volume': "Sorry, I didn't understand the volume level",
-            'adding_favorite': "Okay, adding to favorites",
-            'playing_favorites': "Playing your favorites",
-            'sleep_timer': "Okay, I'll stop in {minutes} minutes",
-            'invalid_duration': "Sorry, I didn't understand the duration",
-            'repeat_on': "Okay, repeating",
-            'repeat_off': "Okay, stopping repeat",
-            'shuffle_on': "Okay, shuffling",
-            'shuffle_off': "Okay, stopping shuffle",
-            'play_next': "Okay, {song} will play next",
-            'add_to_queue': "Okay, adding {song} to queue",
-            'alarm_set': "Okay, alarm at {time}",
-            'alarm_cancelled': "Alarm cancelled",
-            'invalid_time': "Sorry, I didn't understand the time",
-            'unknown_command': "Sorry, I didn't understand",
-            'validation_error': "Sorry, something went wrong",
-        }
+        self._responses = ResponseLibrary(language=language)
 
     def _get_message(self, key: str, **params) -> str:
-        """Get message in current language with parameters."""
-        messages = self._messages_fr if self.language == 'fr' else self._messages_en
-        template = messages.get(key, messages['unknown_command'])
-        try:
-            return template.format(**params)
-        except KeyError:
-            return template
+        response = self._responses.get(key, fallback_key="unknown_command", **params)
+        if response:
+            return response
+        self.logger.warning(f"Missing response template for '{key}'")
+        return ""
 
     def validate(self, intent: Intent) -> ValidationResult:
-        """
-        Validate command and return result with French feedback.
-
-        Args:
-            intent: Classified intent to validate
-
-        Returns:
-            ValidationResult with validation outcome and TTS feedback
-        """
         try:
             intent_type = intent.intent_type
             params = intent.parameters or {}
@@ -260,29 +128,38 @@ class CommandValidator:
             )
 
         # Search for song/artist in catalog
-        result = self.music_library.search(query)
+        # Use search_best() to always return something for play_music intent
+        # Better to play low-confidence match than nothing
+        result = self.music_library.search_best(query)
 
         if not result:
+            # Should never happen with search_best() unless library is empty
             return ValidationResult.invalid(
                 message=self._get_message('no_music_found', query=query)
             )
 
-        # Got match - MusicLibrary.search returns (file_path, confidence)
+        # Got match - MusicLibrary.search_best returns (file_path, confidence)
         best_match, confidence = result
 
         # Strip .mp3 extension for cleaner TTS
         import os
         song_name = os.path.splitext(best_match)[0]
 
-        # High confidence - confirm what we found
+        # Reject very low confidence matches (likely wrong song)
+        if confidence < 0.5:
+            return ValidationResult.invalid(
+                message=self._get_message('no_music_found', query=query)
+            )
+
+        # High confidence (>=80%) - confirm what we found
         if confidence >= 0.8:
             return ValidationResult.valid(
                 message=self._get_message('playing_song', song=song_name),
                 params={'matched_file': best_match, 'query': query},
                 confidence=confidence
             )
+        # Medium confidence (50-80%) - express uncertainty
         else:
-            # Lower confidence - express uncertainty
             return ValidationResult.valid(
                 message=self._get_message('playing_with_confidence', song=song_name),
                 params={'matched_file': best_match, 'query': query},

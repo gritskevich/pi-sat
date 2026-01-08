@@ -1,26 +1,5 @@
-"""
-Orchestrator - Application Lifecycle Manager
-
-Manages Pi-Sat application lifecycle:
-- Wake word detection
-- Command processing delegation
-- Signal handling
-- Graceful shutdown
-
-Refactored for clarity and testability:
-- Delegates command processing to CommandProcessor
-- Focuses on lifecycle management only
-- Supports dependency injection for testing
-
-Following KISS principle: Simple lifecycle, delegate complexity.
-"""
-
-import subprocess
-import time
-import threading
 import signal
 import sys
-import os
 from typing import Optional
 from modules.wake_word_listener import WakeWordListener
 from modules.command_processor import CommandProcessor
@@ -29,12 +8,6 @@ from modules.logging_utils import setup_logger, log_info, log_success, log_warni
 
 
 class Orchestrator:
-    """
-    Application lifecycle manager.
-
-    Manages wake word detection and delegates command processing.
-    """
-
     def __init__(
         self,
         command_processor: Optional[CommandProcessor] = None,
@@ -44,19 +17,6 @@ class Orchestrator:
         # Backward compatibility parameters
         mpd_controller=None
     ):
-        """
-        Initialize Orchestrator.
-
-        Args:
-            command_processor: CommandProcessor instance (required for new architecture)
-            wake_word_listener: Optional WakeWordListener (created if None)
-            verbose: Enable verbose output
-            debug: Enable debug logging
-            mpd_controller: [DEPRECATED] For backward compatibility only
-
-        Note: If command_processor is None and mpd_controller is provided,
-              will create a legacy-style orchestrator for backward compatibility.
-        """
         self.verbose = verbose
         self.debug = debug
         self.logger = setup_logger(__name__, debug=debug, verbose=verbose)
@@ -95,11 +55,6 @@ class Orchestrator:
         log_info(self.logger, "Orchestrator initialized (new architecture)")
 
     def start(self):
-        """
-        Start the orchestrator.
-
-        Initializes wake word listener and begins listening loop.
-        """
         log_info(self.logger, "Starting Pi-Sat orchestrator...")
 
         # Setup signal handlers
@@ -131,19 +86,12 @@ class Orchestrator:
             self.stop()
 
     def _on_wake_word_detected(self):
-        """
-        Handle wake word detection.
-
-        Delegates command processing to CommandProcessor.
-        Wake word stream is already closed - command processor creates fresh stream for recording.
-        """
         if self.is_processing:
             log_warning(self.logger, "Ignoring wake word - already processing command")
             return
 
         log_success(self.logger, "🔔 WAKE WORD DETECTED!")
         # Wake sound already played by WakeWordListener
-        # OWW stream already closed - command processor creates fresh stream
         self.is_processing = True
 
         try:
@@ -154,7 +102,6 @@ class Orchestrator:
             log_info(self.logger, "✅ Ready for next wake word")
 
     def _signal_handler(self, signum, frame):
-        """Handle termination signals"""
         log_info(self.logger, "Shutting down orchestrator...")
         self.running = False
         self.stop()
@@ -164,9 +111,6 @@ class Orchestrator:
             pass
 
     def stop(self):
-        """
-        Stop the orchestrator and cleanup resources.
-        """
         self.running = False
 
         # Stop wake word listener

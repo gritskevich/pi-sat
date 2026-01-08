@@ -28,16 +28,9 @@ class WakeWordListener:
 
         openwakeword_utils.download_models()
 
-        # Setup logger first
         self.debug = debug
         self.logger = setup_logger(__name__, debug=debug)
 
-        # Initialize openWakeWord with optimizations:
-        # - vad_threshold: Requires Silero VAD to detect speech (reduces false positives)
-        # - enable_speex_noise_suppression: Reduces background noise (requires speexdsp-ns)
-        # See: https://github.com/dscripka/openWakeWord for details
-
-        # Log Speex status
         if config.ENABLE_SPEEX_NOISE_SUPPRESSION:
             log_info(self.logger, "Speex noise suppression: ENABLED")
         else:
@@ -50,17 +43,16 @@ class WakeWordListener:
             enable_speex_noise_suppression=config.ENABLE_SPEEX_NOISE_SUPPRESSION
         )
 
-        # Lazily create PyAudio only when starting live listening to avoid lingering threads during tests
         self.p = None
         self.stream = None
         self.last_detection_time = 0
         self.cooldown = float(getattr(config, "WAKE_WORD_COOLDOWN", 2.0))
-        self.tts_cooldown_end = 0  # Timestamp when TTS cooldown expires (prevents self-triggering)
+        self.tts_cooldown_end = 0
         self.running = True
-        self._heartbeat_counter = 0  # For periodic health check logs
-        self._last_model_reset = time.time()  # Periodic model state cleanup
-        self._last_debug_log = time.time()  # For periodic debug output
-        self._debug_log_interval = 0.5  # Log debug info every 0.5s in debug mode
+        self._heartbeat_counter = 0
+        self._last_model_reset = time.time()
+        self._last_debug_log = time.time()
+        self._debug_log_interval = 0.5
 
     def _flush_stream_buffer(self):
         """Drop any buffered audio collected while command processing blocked detection."""
@@ -71,8 +63,8 @@ class WakeWordListener:
                 available = int(self.stream.get_read_available())
                 if available > 0:
                     self.stream.read(available, exception_on_overflow=False)
-        except Exception:
-            pass
+        except Exception as e:
+            log_debug(self.logger, f"Failed to flush stream buffer: {e}")
         
     def reset_model_state(self):
         """Reset wake word model state by feeding it silence."""
@@ -84,8 +76,8 @@ class WakeWordListener:
 
         if self.p is None:
             self.p = pyaudio.PyAudio()
-        target_rate = int(getattr(config, "RATE", 16000))  # device open rate
-        model_rate = 16000  # openWakeWord expects 16kHz
+        target_rate = int(getattr(config, "RATE", 16000))
+        model_rate = 16000
         self._resample_buf = np.zeros(0, dtype=np.int16)
         try:
             self.stream = self.p.open(
@@ -98,12 +90,13 @@ class WakeWordListener:
             )
             self._input_rate = target_rate
             time.sleep(0.1)
-        except Exception:
-            # Fallback to default device rate, will resample in software
+        except Exception as e:
+            log_warning(self.logger, f"Failed to open stream at {target_rate}Hz, trying fallback: {e}")
             try:
                 info = self.p.get_default_input_device_info()
                 fallback_rate = int(info.get("defaultSampleRate", 16000))
-            except Exception:
+            except Exception as fallback_err:
+                log_warning(self.logger, f"Failed to get default device info: {fallback_err}")
                 fallback_rate = 48000
             self.stream = self.p.open(
                 format=getattr(pyaudio, config.FORMAT),
@@ -120,20 +113,18 @@ class WakeWordListener:
 
         while self.running:
             try:
-                # Periodic health check log (every ~60 seconds)
                 self._heartbeat_counter += 1
                 if self._heartbeat_counter % 600 == 0:
                     log_debug(self.logger, f"Wake word listener alive (iterations: {self._heartbeat_counter})")
                 
-                # Periodic model state reset (every 60s) to prevent VAD/model drift during music
                 if time.time() - self._last_model_reset > 60.0:
                     self.reset_model_state()
                     self._last_model_reset = time.time()
+                    log_debug(self.logger, "Wake word model state reset (60s periodic)")
 
                 data = self.stream.read(config.CHUNK, exception_on_overflow=False)
                 audio = np.frombuffer(data, dtype=np.int16)
 
-                # Resample device audio to 16 kHz for the model if needed
                 if getattr(self, "_input_rate", target_rate) != model_rate and audio.size > 0:
                     src = audio.astype(np.float32)
                     src_len = src.shape[0]
@@ -144,16 +135,13 @@ class WakeWordListener:
                     resampled = np.interp(x_new, x_old, src)
                     audio = np.clip(resampled, -32768, 32767).astype(np.int16)
 
-                # Accumulate and process fixed 20ms (320 @16k) chunks
                 if audio.size > 0:
                     self._resample_buf = np.concatenate((self._resample_buf, audio))
-                # Use 20ms frames at 16kHz (320 samples) for prediction
                 frame_size = 320
                 while self._resample_buf.size >= frame_size:
                     frame = self._resample_buf[:frame_size]
                     self._resample_buf = self._resample_buf[frame_size:]
 
-                    # Calculate RMS for debug output
                     if self.debug:
                         rms = float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)))
 
@@ -165,9 +153,7 @@ class WakeWordListener:
                         self.reset_model_state()
                         continue
 
-                    # Continuous debug output (audio levels + all confidence scores)
                     if self.debug and time.time() - self._last_debug_log >= self._debug_log_interval:
-                        # Show all wake word confidences (even below threshold)
                         confidence_str = ", ".join([f"{ww}: {conf:.3f}" for ww, conf in prediction.items()])
                         log_debug(self.logger, f"🎤 RMS: {rms:>6.1f} | Confidences: {confidence_str}")
                         self._last_debug_log = time.time()
@@ -176,90 +162,81 @@ class WakeWordListener:
                         if confidence > config.THRESHOLD:
                             current_time = time.time()
 
-                            # Check TTS cooldown (prevents self-triggering from TTS audio tail)
                             if current_time < self.tts_cooldown_end:
                                 if self.debug:
                                     remaining = self.tts_cooldown_end - current_time
                                     log_debug(self.logger, f"🔇 Ignoring detection during TTS cooldown ({remaining:.1f}s remaining)")
                                 continue
 
-                            # Check wake word cooldown (prevents rapid re-triggers)
                             if current_time - self.last_detection_time >= self.cooldown:
                                 self.last_detection_time = current_time
                                 log_success(self.logger, f"🔔 WAKE WORD: {wake_word} ({confidence:.2f})")
-                                # Play confirmation sound (non-blocking)
                                 play_wake_sound()
 
-                                # OPTIMIZATION: Kill OpenWakeWord stream IMMEDIATELY (simpler, cleaner orchestration)
-                                # Command processor will create its own fresh stream for recording
                                 log_debug(self.logger, "Closing audio stream for command processing...")
                                 if self.stream:
                                     self.stream.stop_stream()
                                     self.stream.close()
                                     self.stream = None
 
-                                # Notify orchestrator WITHOUT stream context (BLOCKS until command completes)
                                 try:
                                     self._notify_orchestrator()
                                 except Exception as notify_error:
                                     log_error(self.logger, f"Command processing error: {notify_error}")
 
-                                # STREAM RECREATION: Open fresh stream for next wake word detection
                                 log_debug(self.logger, "Recreating audio stream for wake word detection...")
-                                try:
-                                    # Brief pause for hardware cleanup
-                                    time.sleep(0.1)
+                                # Retry stream recreation up to 3 times
+                                stream_recreated = False
+                                for retry in range(3):
+                                    try:
+                                        time.sleep(0.1 * (retry + 1))  # Increasing backoff
 
-                                    # Open fresh stream (same config as start_listening)
-                                    self.stream = self.p.open(
-                                        format=getattr(pyaudio, config.FORMAT),
-                                        channels=config.CHANNELS,
-                                        rate=self._input_rate,
-                                        input=True,
-                                        input_device_index=None,
-                                        frames_per_buffer=config.CHUNK
-                                    )
+                                        self.stream = self.p.open(
+                                            format=getattr(pyaudio, config.FORMAT),
+                                            channels=config.CHANNELS,
+                                            rate=self._input_rate,
+                                            input=True,
+                                            input_device_index=None,
+                                            frames_per_buffer=config.CHUNK
+                                        )
 
-                                    # Reset all state with fresh stream
-                                    self._resample_buf = np.zeros(0, dtype=np.int16)
-                                    self.reset_model_state()
+                                        self._resample_buf = np.zeros(0, dtype=np.int16)
+                                        self.reset_model_state()
 
-                                    # No TTS cooldown needed - fresh stream has no audio history
-                                    log_debug(self.logger, "Audio stream recreated successfully")
-                                except Exception as stream_error:
-                                    log_error(self.logger, f"Stream recreation failed: {stream_error}")
-                                    # If stream recreation fails, we must exit the loop
+                                        log_debug(self.logger, "Audio stream recreated successfully")
+                                        stream_recreated = True
+                                        break
+                                    except Exception as stream_error:
+                                        if retry < 2:
+                                            log_warning(self.logger, f"Stream recreation attempt {retry + 1} failed: {stream_error}, retrying...")
+                                        else:
+                                            log_error(self.logger, f"Stream recreation failed after 3 attempts: {stream_error}")
+
+                                if not stream_recreated:
+                                    log_error(self.logger, "Stopping wake word detection due to stream recreation failure")
+                                    self.running = False
                                     break
                         elif self.debug and confidence > config.LOW_CONFIDENCE_THRESHOLD:
                             log_debug(self.logger, f"👂 Low confidence: {wake_word} ({confidence:.2f})")
                 
-                # Small sleep to yield CPU (once per stream read, not per frame)
                 time.sleep(0.001)
                             
             except KeyboardInterrupt:
                 break
             except Exception as e:
                 log_error(self.logger, f"Wake word listener error: {e}")
-                # Don't break - try to recover and keep listening
                 try:
-                    # Reset buffers and model state to recover
                     self._resample_buf = np.zeros(0, dtype=np.int16)
                     self.reset_model_state()
                     log_warning(self.logger, "Attempting to recover wake word detection...")
-                    time.sleep(0.5)  # Brief pause before retrying
+                    time.sleep(0.5)
                 except Exception as recovery_error:
                     log_error(self.logger, f"Recovery failed: {recovery_error}")
-                    break  # Only break if recovery itself fails
+                    break
 
         self.stop_listening()
     
     def _notify_orchestrator(self):
-        """
-        Notify orchestrator of wake word detection.
-
-        This method is overridden by orchestrator to provide actual handling.
-        Stream is already closed when this is called - command processor creates fresh stream.
-        """
         log_debug(self.logger, "Notifying orchestrator...")
 
     def stop_listening(self):
@@ -273,15 +250,12 @@ class WakeWordListener:
         log_info(self.logger, "Wake word listener stopped.")
 
     def detect_wake_word(self, audio_data):
-        """Detect wake word in audio data (for testing)"""
         if len(audio_data) == 0:
             return False
         
-        # Convert to int16 if needed
         if audio_data.dtype != np.int16:
             audio_data = (audio_data * 32767).astype(np.int16)
         
-        # Process in chunks
         chunk_size = config.CHUNK
         detected = False
         

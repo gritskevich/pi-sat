@@ -4,10 +4,21 @@ Tests for CommandValidator - Domain Service for Command Validation
 Tests validation logic with French TTS feedback messages.
 """
 
+import json
+from pathlib import Path
 import pytest
 from modules.command_validator import CommandValidator, ValidationResult
 from modules.interfaces import Intent
 from modules.music_library import MusicLibrary
+
+RESPONSE_LIBRARY = json.loads(
+    Path(__file__).resolve().parent.parent.joinpath("resources/response_library.json").read_text(encoding="utf-8")
+)
+
+
+def _response_options(language: str, key: str, **params):
+    options = RESPONSE_LIBRARY.get(language, {}).get(key, [])
+    return [template.format(**params) for template in options]
 
 
 class TestValidationResult:
@@ -15,21 +26,23 @@ class TestValidationResult:
 
     def test_valid_result(self):
         """Test creating valid result."""
+        message = RESPONSE_LIBRARY["fr"]["unknown"][0]
         result = ValidationResult.valid(
-            message="D'accord",
+            message=message,
             params={'query': 'test'},
             confidence=0.9
         )
         assert result.is_valid is True
-        assert result.feedback_message == "D'accord"
+        assert result.feedback_message == message
         assert result.validated_params == {'query': 'test'}
         assert result.confidence == 0.9
 
     def test_invalid_result(self):
         """Test creating invalid result."""
-        result = ValidationResult.invalid(message="Désolé")
+        message = RESPONSE_LIBRARY["fr"]["unknown"][1]
+        result = ValidationResult.invalid(message=message)
         assert result.is_valid is False
-        assert result.feedback_message == "Désolé"
+        assert result.feedback_message == message
         assert result.validated_params == {}
         assert result.confidence == 0.0
 
@@ -54,11 +67,11 @@ class TestCommandValidatorFrench:
         # Mock library methods
         def mock_is_empty():
             return False
-        def mock_search(query):
+        def mock_search_best(query):
             return ("Frozen.mp3", 0.9)
 
         monkeypatch.setattr(validator_fr.music_library, 'is_empty', mock_is_empty)
-        monkeypatch.setattr(validator_fr.music_library, 'search', mock_search)
+        monkeypatch.setattr(validator_fr.music_library, 'search_best', mock_search_best)
 
         intent = Intent(
             intent_type='play_music',
@@ -72,7 +85,7 @@ class TestCommandValidatorFrench:
 
         # Should validate successfully with high confidence
         assert result.is_valid is True
-        assert 'accord' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'playing_song', song="Frozen")
         assert result.confidence >= 0.8
 
     def test_play_music_valid_low_confidence(self, validator_fr, monkeypatch):
@@ -80,11 +93,11 @@ class TestCommandValidatorFrench:
         # Mock library methods
         def mock_is_empty():
             return False
-        def mock_search(query):
+        def mock_search_best(query):
             return ("test_song.mp3", 0.6)
 
         monkeypatch.setattr(validator_fr.music_library, 'is_empty', mock_is_empty)
-        monkeypatch.setattr(validator_fr.music_library, 'search', mock_search)
+        monkeypatch.setattr(validator_fr.music_library, 'search_best', mock_search_best)
 
         intent = Intent(
             intent_type='play_music',
@@ -98,19 +111,20 @@ class TestCommandValidatorFrench:
 
         # Should validate with uncertainty message
         assert result.is_valid is True
-        assert 'pense' in result.feedback_message.lower() or 'sûr' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'playing_with_confidence', song="test_song")
         assert result.confidence < 0.8
 
     def test_play_music_no_match(self, validator_fr, monkeypatch):
-        """Test play music with no catalog match."""
+        """Test play music with no catalog match - or very low confidence."""
         # Mock library methods
         def mock_is_empty():
             return False
-        def mock_search(query):
-            return None
+        def mock_search_best(query):
+            # Return low confidence match (<50%) to trigger rejection
+            return ("test_song.mp3", 0.3)
 
         monkeypatch.setattr(validator_fr.music_library, 'is_empty', mock_is_empty)
-        monkeypatch.setattr(validator_fr.music_library, 'search', mock_search)
+        monkeypatch.setattr(validator_fr.music_library, 'search_best', mock_search_best)
 
         intent = Intent(
             intent_type='play_music',
@@ -124,8 +138,7 @@ class TestCommandValidatorFrench:
 
         # Should fail validation
         assert result.is_valid is False
-        assert 'pas trouvé' in result.feedback_message.lower()
-        assert 'nonexistent' in result.feedback_message
+        assert result.feedback_message in _response_options('fr', 'no_music_found', query='nonexistent')
 
     def test_play_music_empty_query(self, validator_fr):
         """Test play music with empty query."""
@@ -161,7 +174,7 @@ class TestCommandValidatorFrench:
 
         # Should fail validation
         assert result.is_valid is False
-        assert 'vide' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'empty_library')
 
     # Simple control validation tests
     def test_pause_validation(self, validator_fr):
@@ -177,7 +190,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'pause' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'pausing')
 
     def test_resume_validation(self, validator_fr):
         """Test resume command validation."""
@@ -192,7 +205,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'reprends' in result.feedback_message.lower() or 'musique' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'resuming')
 
     def test_stop_validation(self, validator_fr):
         """Test stop command validation."""
@@ -207,7 +220,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'arrête' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'stopping')
 
     def test_next_validation(self, validator_fr):
         """Test next command validation."""
@@ -222,7 +235,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'suivant' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'next_song')
 
     def test_previous_validation(self, validator_fr):
         """Test previous command validation."""
@@ -237,7 +250,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'précédent' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'previous_song')
 
     # Volume validation tests
     def test_volume_up_validation(self, validator_fr):
@@ -253,7 +266,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'volume' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'volume_up')
 
     def test_volume_down_validation(self, validator_fr):
         """Test volume down validation."""
@@ -268,7 +281,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'volume' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'volume_down')
 
     # Favorites validation tests
     def test_add_favorite_validation(self, validator_fr):
@@ -284,7 +297,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'favoris' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'adding_favorite')
 
     def test_play_favorites_validation(self, validator_fr):
         """Test play favorites validation."""
@@ -299,7 +312,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'favoris' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'playing_favorites')
 
     # Sleep timer validation tests
     def test_sleep_timer_valid(self, validator_fr):
@@ -315,8 +328,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert '30' in result.feedback_message
-        assert 'minutes' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'sleep_timer', minutes=30)
 
     def test_sleep_timer_invalid_duration(self, validator_fr):
         """Test sleep timer with invalid duration."""
@@ -331,7 +343,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is False
-        assert 'compris' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'invalid_duration')
 
     def test_sleep_timer_negative_duration(self, validator_fr):
         """Test sleep timer with negative duration."""
@@ -361,7 +373,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'répète' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'repeat_on')
 
     def test_shuffle_on_validation(self, validator_fr):
         """Test shuffle on validation."""
@@ -376,7 +388,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'mélange' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'shuffle_on')
 
     # Queue validation tests
     def test_play_next_validation(self, validator_fr):
@@ -392,8 +404,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'ensuite' in result.feedback_message.lower()
-        assert 'frozen' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'play_next', song='frozen')
 
     def test_play_next_empty_query(self, validator_fr):
         """Test play next with empty query."""
@@ -423,8 +434,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert '07:00' in result.feedback_message
-        assert 'alarme' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'alarm_set', time='07:00')
 
     def test_set_alarm_invalid_time(self, validator_fr):
         """Test set alarm with invalid time."""
@@ -439,7 +449,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is False
-        assert 'compris' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'invalid_time')
 
     def test_cancel_alarm_validation(self, validator_fr):
         """Test cancel alarm validation."""
@@ -454,7 +464,7 @@ class TestCommandValidatorFrench:
         result = validator_fr.validate(intent)
 
         assert result.is_valid is True
-        assert 'alarme' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'alarm_cancelled')
 
 
 class TestCommandValidatorEnglish:
@@ -478,7 +488,7 @@ class TestCommandValidatorEnglish:
         result = validator_en.validate(intent)
 
         assert result.is_valid is True
-        assert 'paus' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('en', 'pausing')
 
     def test_play_music_no_library_en(self, validator_en):
         """Test play music without library in English."""
@@ -494,7 +504,7 @@ class TestCommandValidatorEnglish:
 
         # Should succeed optimistically (no library to validate against)
         assert result.is_valid is True
-        assert 'frozen' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('en', 'playing_song', song='frozen')
         assert result.confidence == 0.7  # Lower confidence without validation
 
     def test_volume_up_en(self, validator_en):
@@ -510,7 +520,7 @@ class TestCommandValidatorEnglish:
         result = validator_en.validate(intent)
 
         assert result.is_valid is True
-        assert 'volume' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('en', 'volume_up')
 
 
 class TestCommandValidatorErrorHandling:
@@ -555,4 +565,4 @@ class TestCommandValidatorErrorHandling:
 
         # Should return error result with error message
         assert result.is_valid is False
-        assert 'problème' in result.feedback_message.lower() or 'error' in result.feedback_message.lower()
+        assert result.feedback_message in _response_options('fr', 'validation_error')

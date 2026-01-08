@@ -27,7 +27,7 @@ class HailoWhisperPipeline:
         self.variant = variant
         self.language = language
 
-        self.decoding_sequence_length = 32 if self.variant == "tiny" else 24
+        self.decoding_sequence_length = None  # set from HEF
         self.host = host  # not used in this version
         self.multi_process_service = multi_process_service
 
@@ -130,6 +130,15 @@ class HailoWhisperPipeline:
         decoder_hef = HEF(self.decoder_model_path)
         sorted_output_names = decoder_hef.get_sorted_output_names()
         decoder_model_name = decoder_hef.get_network_group_names()[0]
+        self.decoding_sequence_length = decoder_hef.get_output_vstream_infos()[0].shape[1]
+
+        encoder_hef = HEF(self.encoder_model_path)
+        input_audio_length = int(encoder_hef.get_input_vstream_infos()[0].shape[1] / 100)
+        print(
+            f"[HailoWhisper] variant={self.variant} input_len_s={input_audio_length} "
+            f"decode_len={self.decoding_sequence_length}",
+            flush=True,
+        )
 
         with VDevice(params) as vdevice:
             encoder_infer_model = vdevice.create_infer_model(self.encoder_model_path)
@@ -166,7 +175,6 @@ class HailoWhisperPipeline:
                             # Decoder
                             # Whisper SOT sequence:
                             # <|startoftranscript|> + <|lang|> + <|transcribe|> + <|notimestamps|>
-                            # (forces transcription in the target language; avoids implicit translation)
                             start_token_id = 50258
                             prefix_tokens = [start_token_id, self.language_token_id]
                             if self.transcribe_token_id is not None:
@@ -180,7 +188,6 @@ class HailoWhisperPipeline:
                             generated_tokens = []
                             decoder_outputs = None
                             # Run Decoder Iteratively
-                            # Predict tokens after the fixed prefix.
                             prefix_len = len(prefix_tokens)
                             for i in range(self.decoding_sequence_length - prefix_len):
                                 tokenized_ids = self._tokenization(decoder_input_ids)

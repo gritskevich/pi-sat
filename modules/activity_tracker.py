@@ -1,367 +1,270 @@
 """
-Activity Tracker - Daily Listening Time Limits & Usage Tracking
+Activity Tracker Module
 
-Tracks music listening time and enforces daily limits for kids.
-Provides usage statistics and warnings before limit is reached.
-
-Key Features:
-- Track daily listening time
-- Enforce daily time limits (e.g., max 2 hours per day)
-- Warning before limit reached
-- Reset at midnight
-- Usage statistics and reports
-- Persistent storage across restarts
-
-Example Usage:
-    tracker = ActivityTracker()
-
-    # Start tracking playback
-    tracker.start_tracking()
-
-    # Check if limit reached
-    if tracker.is_limit_reached():
-        stop_playback()
-
-    # Get remaining time
-    minutes_left = tracker.get_remaining_minutes()
+Tracks daily listening time and enforces time limits for kid-safe usage.
+Simple, file-based persistence following KISS principles.
 """
 
-import logging
-from datetime import datetime, date, timedelta
-from typing import Optional, Tuple, Dict
-import threading
 import json
-import os
+import threading
+from datetime import datetime, date
+from pathlib import Path
+from typing import Optional, Dict, Any
+from modules.logging_utils import setup_logger
 
-import config
-
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 class ActivityTracker:
     """
-    Tracks daily music listening activity and enforces time limits.
+    Tracks music listening time and enforces daily limits.
 
-    Manages daily listening time with configurable limits and warnings.
+    Design:
+    - Tracks total listening time per day
+    - Enforces configurable daily limit (e.g., 2 hours)
+    - Persists data to ~/.pisat_usage.json
+    - Automatic reset at midnight
+    - Thread-safe
     """
 
     def __init__(
         self,
-        enabled: bool = None,
-        daily_limit_minutes: int = None,
-        warning_minutes: int = None,
-        storage_path: str = None,
+        daily_limit_minutes: int = 120,  # 2 hours default
+        warning_minutes: int = 15,  # Warn when 15 min remain
+        storage_path: Optional[str] = None,
+        enabled: bool = True,
         debug: bool = False
     ):
         """
-        Initialize Activity Tracker.
+        Initialize activity tracker.
 
         Args:
-            enabled: Enable time limit enforcement (default: from config)
-            daily_limit_minutes: Daily time limit in minutes (default: from config)
-            warning_minutes: Warn when X minutes remain (default: from config)
-            storage_path: Path to store usage data (default: ~/.pisat_usage.json)
+            daily_limit_minutes: Maximum listening time per day (minutes)
+            warning_minutes: Minutes remaining to trigger warning
+            storage_path: Path to persistent storage file
+            enabled: Enable time limit enforcement
             debug: Enable debug logging
         """
-        self.enabled = enabled if enabled is not None else config.DAILY_TIME_LIMIT_ENABLED
-        self.daily_limit_minutes = daily_limit_minutes or config.DAILY_TIME_LIMIT_MINUTES
-        self.warning_minutes = warning_minutes or config.TIME_LIMIT_WARNING_MINUTES
-        self.storage_path = storage_path or os.path.expanduser('~/.pisat_usage.json')
-        self.debug = debug
+        self.daily_limit_minutes = daily_limit_minutes
+        self.warning_minutes = warning_minutes
+        self.enabled = enabled
 
-        # Tracking state
-        self._current_session_start: Optional[datetime] = None
-        self._today_total_seconds: int = 0
-        self._last_date: Optional[date] = None
+        # Storage
+        if storage_path is None:
+            storage_path = str(Path.home() / '.pisat_usage.json')
+        self.storage_path = Path(storage_path)
+
+        # State
         self._lock = threading.Lock()
-        self._warned = False
-
-        # Load saved data
-        self._load_usage_data()
+        self._listening_start: Optional[datetime] = None
+        self._today_minutes: int = 0
+        self._last_warning_given = False
+        self._load_state()
 
         if debug:
+            import logging
             logger.setLevel(logging.DEBUG)
 
         logger.info(
-            f"Activity Tracker initialized: "
-            f"enabled={self.enabled}, "
-            f"limit={self.daily_limit_minutes} min/day"
+            f"ActivityTracker initialized: "
+            f"limit={daily_limit_minutes}min/day, "
+            f"enabled={enabled}"
         )
 
-    def _load_usage_data(self):
-        """Load usage data from persistent storage"""
-        try:
-            if os.path.exists(self.storage_path):
-                with open(self.storage_path, 'r') as f:
-                    data = json.load(f)
-
-                # Parse saved date
-                saved_date = date.fromisoformat(data.get('date', str(date.today())))
-
-                # Only restore if from today
-                if saved_date == date.today():
-                    self._today_total_seconds = data.get('total_seconds', 0)
-                    self._last_date = saved_date
-                    logger.info(f"Loaded usage data: {self._today_total_seconds // 60} minutes used today")
-                else:
-                    # Old data, start fresh
-                    self._today_total_seconds = 0
-                    self._last_date = date.today()
-                    logger.info("Starting new day, usage reset")
-        except Exception as e:
-            logger.warning(f"Failed to load usage data: {e}")
-            self._today_total_seconds = 0
-            self._last_date = date.today()
-
-    def _save_usage_data(self):
-        """Save usage data to persistent storage"""
-        try:
-            data = {
-                'date': str(self._last_date or date.today()),
-                'total_seconds': self._today_total_seconds
-            }
-
-            with open(self.storage_path, 'w') as f:
-                json.dump(data, f)
-
-            if self.debug:
-                logger.debug(f"Saved usage data: {self._today_total_seconds // 60} minutes")
-
-        except Exception as e:
-            logger.error(f"Failed to save usage data: {e}")
-
-    def start_tracking(self) -> bool:
-        """
-        Start tracking current session.
-
-        Returns:
-            True if tracking started, False if limit already reached
-        """
+    def start_listening(self):
+        """Mark start of listening session"""
         with self._lock:
-            # Check if new day
-            self._check_and_reset_if_new_day()
+            # Check for day change and reset if needed
+            self._check_reset()
 
-            # Check if limit reached
-            if self.is_limit_reached():
-                return False
+            if self._listening_start is None:
+                self._listening_start = datetime.now()
+                logger.debug("Listening session started")
 
-            # Start new session
-            self._current_session_start = datetime.now()
-            logger.info("Started tracking playback session")
-            return True
-
-    def stop_tracking(self):
-        """Stop tracking current session and save accumulated time"""
+    def stop_listening(self):
+        """Mark end of listening session and update total time"""
         with self._lock:
-            if self._current_session_start is None:
+            if self._listening_start is None:
                 return
 
             # Calculate session duration
-            session_duration = (datetime.now() - self._current_session_start).total_seconds()
-            self._today_total_seconds += int(session_duration)
+            session_end = datetime.now()
+            duration_seconds = (session_end - self._listening_start).total_seconds()
+            duration_minutes = int(duration_seconds / 60)
 
-            logger.info(f"Session ended: {int(session_duration // 60)} minutes")
-            logger.info(f"Total today: {self._today_total_seconds // 60} minutes")
+            # Update today's total
+            self._today_minutes += duration_minutes
+            self._listening_start = None
 
-            # Reset session
-            self._current_session_start = None
+            logger.debug(
+                f"Listening session ended: +{duration_minutes}min, "
+                f"total today={self._today_minutes}min"
+            )
 
-            # Save data
-            self._save_usage_data()
-
-    def pause_tracking(self):
-        """Pause tracking (e.g., when music is paused)"""
-        self.stop_tracking()
-
-    def resume_tracking(self):
-        """Resume tracking (e.g., when music is resumed)"""
-        self.start_tracking()
+            # Persist state
+            self._save_state()
 
     def is_limit_reached(self) -> bool:
         """
-        Check if daily time limit has been reached.
+        Check if daily limit has been reached.
 
         Returns:
-            True if limit reached or exceeded
+            True if limit exceeded
         """
         if not self.enabled:
             return False
 
         with self._lock:
-            # Include current session time
-            total_seconds = self._get_total_seconds_today()
-            limit_seconds = self.daily_limit_minutes * 60
+            self._check_reset()
 
-            return total_seconds >= limit_seconds
+            # Include current session time
+            total_minutes = self._get_total_minutes()
+
+            exceeded = total_minutes >= self.daily_limit_minutes
+
+            if exceeded:
+                logger.debug(
+                    f"Daily limit reached: {total_minutes}/{self.daily_limit_minutes}min"
+                )
+
+            return exceeded
+
+    def should_warn_limit(self) -> bool:
+        """
+        Check if we should warn about approaching limit.
+
+        Returns:
+            True if warning should be given (and hasn't been given yet)
+        """
+        if not self.enabled or self._last_warning_given:
+            return False
+
+        with self._lock:
+            remaining = self.get_remaining_minutes()
+
+            if remaining is not None and 0 < remaining <= self.warning_minutes:
+                self._last_warning_given = True
+                logger.debug(f"Warning triggered: {remaining}min remaining")
+                return True
+
+            return False
 
     def get_remaining_minutes(self) -> Optional[int]:
         """
-        Get remaining listening time for today.
+        Get remaining listening time today.
 
         Returns:
-            Minutes remaining, or None if limits disabled
+            Minutes remaining, or None if limit disabled or exceeded
         """
         if not self.enabled:
             return None
 
         with self._lock:
-            total_seconds = self._get_total_seconds_today()
-            limit_seconds = self.daily_limit_minutes * 60
-            remaining_seconds = max(0, limit_seconds - total_seconds)
+            self._check_reset()
+            total_minutes = self._get_total_minutes()
+            remaining = self.daily_limit_minutes - total_minutes
 
-            return int(remaining_seconds // 60)
+            return remaining if remaining > 0 else 0
 
-    def get_used_minutes(self) -> int:
-        """
-        Get total listening time used today.
-
-        Returns:
-            Minutes used today
-        """
+    def get_usage_today(self) -> int:
+        """Get total listening time today (minutes)"""
         with self._lock:
-            total_seconds = self._get_total_seconds_today()
-            return int(total_seconds // 60)
+            self._check_reset()
+            return self._get_total_minutes()
 
-    def should_warn_about_limit(self) -> Tuple[bool, Optional[int]]:
-        """
-        Check if we should warn about approaching time limit.
-
-        Returns:
-            Tuple of (should_warn, minutes_remaining)
-        """
-        if not self.enabled:
-            return (False, None)
-
-        with self._lock:
-            # Don't warn multiple times
-            if self._warned:
-                return (False, None)
-
-            minutes_remaining = self.get_remaining_minutes()
-
-            if minutes_remaining is None:
-                return (False, None)
-
-            if 0 < minutes_remaining <= self.warning_minutes:
-                self._warned = True
-                return (True, minutes_remaining)
-
-            return (False, None)
-
-    def get_usage_summary(self) -> str:
-        """
-        Get human-readable usage summary.
-
-        Returns:
-            Usage summary message
-        """
-        if not self.enabled:
-            return "Time limits are not enabled"
-
-        used_minutes = self.get_used_minutes()
-        remaining_minutes = self.get_remaining_minutes()
-
-        if self.is_limit_reached():
-            return f"You've used all {self.daily_limit_minutes} minutes for today. Try again tomorrow!"
+    def get_limit_message(self, language: str = 'fr') -> str:
+        """Get limit reached message"""
+        if language == 'fr':
+            return (
+                f"Tu as écouté assez de musique aujourd'hui ({self.daily_limit_minutes} minutes). "
+                "Tu pourras réécouter demain !"
+            )
         else:
             return (
-                f"You've listened for {used_minutes} minutes today. "
-                f"{remaining_minutes} minutes remaining."
+                f"You've listened to enough music today ({self.daily_limit_minutes} minutes). "
+                "You can listen again tomorrow!"
             )
 
-    def reset_daily_limit(self):
-        """Reset daily usage (for new day or manual reset)"""
+    def get_warning_message(self, language: str = 'fr') -> str:
+        """Get approaching limit warning message"""
+        remaining = self.get_remaining_minutes() or 0
+        if language == 'fr':
+            return f"Attention, il te reste {remaining} minutes de musique aujourd'hui."
+        else:
+            return f"Heads up, you have {remaining} minutes of music left today."
+
+    def reset_today(self):
+        """Manually reset today's usage (for testing or manual reset)"""
         with self._lock:
-            self._today_total_seconds = 0
-            self._last_date = date.today()
-            self._current_session_start = None
-            self._warned = False
-            self._save_usage_data()
-            logger.info("Daily usage reset")
+            self._today_minutes = 0
+            self._listening_start = None
+            self._last_warning_given = False
+            self._save_state()
+            logger.info("Usage reset for today")
 
-    def _check_and_reset_if_new_day(self):
-        """Check if it's a new day and reset if needed"""
-        today = date.today()
-
-        if self._last_date != today:
-            logger.info("New day detected, resetting usage")
-            self._today_total_seconds = 0
-            self._last_date = today
-            self._warned = False
-            self._save_usage_data()
-
-    def _get_total_seconds_today(self) -> int:
-        """
-        Get total seconds including current session.
-
-        Returns:
-            Total seconds of playback today
-        """
-        total = self._today_total_seconds
+    def _get_total_minutes(self) -> int:
+        """Get total minutes including current session (internal, requires lock)"""
+        total = self._today_minutes
 
         # Add current session if active
-        if self._current_session_start:
-            session_duration = (datetime.now() - self._current_session_start).total_seconds()
-            total += int(session_duration)
+        if self._listening_start:
+            session_seconds = (datetime.now() - self._listening_start).total_seconds()
+            total += int(session_seconds / 60)
 
         return total
 
+    def _check_reset(self):
+        """Check if day has changed and reset if needed (internal, requires lock)"""
+        state = self._load_state_dict()
+        last_date_str = state.get('date')
 
-def main():
-    """Test Activity Tracker"""
-    import logging
-    import time
-    logging.basicConfig(level=logging.INFO)
+        today_str = date.today().isoformat()
 
-    print("Activity Tracker Test\n")
-    print("=" * 60)
+        if last_date_str != today_str:
+            logger.info(
+                f"New day detected: {last_date_str} → {today_str}, resetting usage"
+            )
+            self._today_minutes = 0
+            self._listening_start = None
+            self._last_warning_given = False
+            self._save_state()
 
-    # Test with 5-minute limit for demonstration
-    tracker = ActivityTracker(
-        enabled=True,
-        daily_limit_minutes=5,
-        warning_minutes=2,
-        storage_path='/tmp/pisat_usage_test.json',
-        debug=True
-    )
+    def _load_state(self):
+        """Load state from persistent storage"""
+        state = self._load_state_dict()
+        today_str = date.today().isoformat()
 
-    print("\n1. Initial state:")
-    print(f"   {tracker.get_usage_summary()}")
+        if state.get('date') == today_str:
+            self._today_minutes = state.get('minutes', 0)
+            logger.debug(f"Loaded state: {self._today_minutes}min today")
+        else:
+            self._today_minutes = 0
+            logger.debug("No state for today, starting fresh")
 
-    # Simulate 3 minutes of playback
-    print("\n2. Simulating 3 minutes of playback:")
-    tracker.start_tracking()
-    print("   Started tracking...")
-    time.sleep(3)  # Simulate 3 seconds (pretend it's 3 minutes)
-    tracker._today_total_seconds = 180  # Set to 3 minutes for demo
-    tracker.stop_tracking()
-    print(f"   {tracker.get_usage_summary()}")
+    def _load_state_dict(self) -> Dict[str, Any]:
+        """Load state dictionary from file"""
+        if not self.storage_path.exists():
+            return {}
 
-    # Check warning
-    print("\n3. Checking for warning:")
-    should_warn, mins = tracker.should_warn_about_limit()
-    if should_warn:
-        print(f"   ⚠️  Warning: {mins} minutes remaining!")
+        try:
+            with open(self.storage_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load state: {e}")
+            return {}
 
-    # Add more time to reach limit
-    print("\n4. Adding 2 more minutes (reaching limit):")
-    tracker._today_total_seconds = 300  # 5 minutes total
-    tracker._save_usage_data()
-    print(f"   {tracker.get_usage_summary()}")
-    print(f"   Limit reached: {tracker.is_limit_reached()}")
+    def _save_state(self):
+        """Save state to persistent storage"""
+        try:
+            state = {
+                'date': date.today().isoformat(),
+                'minutes': self._today_minutes
+            }
 
-    # Try to start tracking after limit
-    print("\n5. Trying to start tracking after limit:")
-    if tracker.start_tracking():
-        print("   Started tracking")
-    else:
-        print("   ✗ Cannot start - limit reached")
+            with open(self.storage_path, 'w') as f:
+                json.dump(state, f, indent=2)
 
-    # Reset
-    print("\n6. Resetting usage:")
-    tracker.reset_daily_limit()
-    print(f"   {tracker.get_usage_summary()}")
+            logger.debug(f"Saved state: {self._today_minutes}min")
 
-
-if __name__ == '__main__':
-    main()
+        except Exception as e:
+            logger.error(f"Failed to save state: {e}")

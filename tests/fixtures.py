@@ -12,6 +12,8 @@ Usage:
 """
 
 import config
+import json
+from pathlib import Path
 from unittest.mock import Mock, MagicMock
 from modules.intent_patterns import Intent
 
@@ -75,12 +77,19 @@ def create_mock_mpd_controller():
         'title': 'Test Song'
     }
 
-    mpd.play.return_value = (True, "Playing test song")
-    mpd.pause.return_value = (True, "Paused")
-    mpd.resume.return_value = (True, "Resumed")
-    mpd.stop.return_value = (True, "Stopped")
-    mpd.next.return_value = (True, "Next song")
-    mpd.previous.return_value = (True, "Previous song")
+    responses = json.loads(
+        Path(__file__).resolve().parent.parent.joinpath("resources/response_library.json").read_text(encoding="utf-8")
+    )
+
+    def pick(lang, key, **params):
+        return responses.get(lang, {}).get(key, [""])[0].format(**params)
+
+    mpd.play.return_value = (True, pick('fr', 'playing_song', song="test song"))
+    mpd.pause.return_value = (True, pick('fr', 'paused'))
+    mpd.resume.return_value = (True, pick('fr', 'resuming'))
+    mpd.stop.return_value = (True, pick('fr', 'stopped'))
+    mpd.next.return_value = (True, pick('fr', 'next_song'))
+    mpd.previous.return_value = (True, pick('fr', 'previous_song'))
 
     return mpd
 

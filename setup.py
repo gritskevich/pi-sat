@@ -12,7 +12,7 @@ long_description = readme_file.read_text() if readme_file.exists() else ""
 
 setup(
     name="pi-sat",
-    version="0.1.0",
+    version="2.0.0",
     description="Local-first voice assistant for Raspberry Pi 5 with Hailo AI accelerator",
     long_description=long_description,
     long_description_content_type="text/markdown",

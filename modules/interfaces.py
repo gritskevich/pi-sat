@@ -1,15 +1,3 @@
-"""
-Protocol Interfaces for Pi-Sat Modules
-
-Defines contracts for all major modules, enabling:
-- Easy swapping of implementations
-- Clear documentation of module responsibilities
-- Type checking and IDE support
-- Dependency injection patterns
-
-Following KISS principle: Simple interfaces, no complex abstractions.
-"""
-
 from typing import Protocol, Optional, Tuple, List, Dict, Any
 from dataclasses import dataclass
 
@@ -36,11 +24,6 @@ class Intent:
 
 @dataclass
 class ValidationResult:
-    """
-    Value Object for command validation results.
-
-    Immutable result containing validation outcome and user feedback in target language.
-    """
     is_valid: bool
     feedback_message: str  # TTS message to speak to user
     validated_params: Dict[str, Any]  # Validated/normalized parameters
@@ -291,142 +274,6 @@ class WakeWordDetector(Protocol):
 
     def detect_wake_word(self, audio_data: bytes) -> bool:
         """Detect wake word in audio (for testing)"""
-        ...
-
-
-class TimeScheduling(Protocol):
-    """Time-based Scheduling Interface (Bedtime enforcement)"""
-
-    def is_quiet_time(self) -> bool:
-        """Check if current time is during quiet hours (bedtime)"""
-        ...
-
-    def is_playback_allowed(self) -> Tuple[bool, Optional[str]]:
-        """
-        Check if music playback is currently allowed.
-
-        Returns:
-            Tuple of (allowed, reason_if_not_allowed)
-        """
-        ...
-
-    def minutes_until_quiet_time(self) -> Optional[int]:
-        """
-        Calculate minutes until quiet time starts.
-
-        Returns:
-            Minutes until bedtime, or None if already in quiet time
-        """
-        ...
-
-    def should_warn_about_bedtime(self) -> Tuple[bool, Optional[int]]:
-        """
-        Check if we should warn about approaching bedtime.
-
-        Returns:
-            Tuple of (should_warn, minutes_remaining)
-        """
-        ...
-
-    def get_schedule_info(self) -> str:
-        """Get human-readable schedule information"""
-        ...
-
-    def update_schedule(self, start_time: Optional[str] = None, end_time: Optional[str] = None) -> str:
-        """Update bedtime schedule"""
-        ...
-
-
-class AlarmManagement(Protocol):
-    """Morning Alarm Management Interface"""
-
-    def set_alarm(
-        self,
-        wake_time: str,
-        music_query: Optional[str] = None,
-        gentle_wakeup: bool = True,
-        recurring: str = 'once'
-    ) -> Tuple[bool, str]:
-        """
-        Set a new alarm.
-
-        Args:
-            wake_time: Wake time in HH:MM format
-            music_query: Music to play (None for favorites)
-            gentle_wakeup: Enable gentle volume fade-in
-            recurring: 'once', 'daily', 'weekdays', 'weekends'
-
-        Returns:
-            Tuple of (success, message)
-        """
-        ...
-
-    def cancel_alarm(self, alarm_id: Optional[int] = None) -> Tuple[bool, str]:
-        """Cancel alarm(s)"""
-        ...
-
-    def check_and_trigger(self) -> bool:
-        """
-        Check if any alarms should trigger.
-
-        Returns:
-            True if an alarm was triggered
-        """
-        ...
-
-
-class UsageTracking(Protocol):
-    """Activity Tracking Interface (Daily time limits)"""
-
-    def start_tracking(self) -> bool:
-        """
-        Start tracking current session.
-
-        Returns:
-            True if tracking started, False if limit already reached
-        """
-        ...
-
-    def stop_tracking(self) -> None:
-        """Stop tracking current session"""
-        ...
-
-    def pause_tracking(self) -> None:
-        """Pause tracking (e.g., when music is paused)"""
-        ...
-
-    def resume_tracking(self) -> None:
-        """Resume tracking (e.g., when music is resumed)"""
-        ...
-
-    def is_limit_reached(self) -> bool:
-        """Check if daily time limit has been reached"""
-        ...
-
-    def get_remaining_minutes(self) -> Optional[int]:
-        """
-        Get remaining listening time for today.
-
-        Returns:
-            Minutes remaining, or None if limits disabled
-        """
-        ...
-
-    def get_used_minutes(self) -> int:
-        """Get total listening time used today"""
-        ...
-
-    def should_warn_about_limit(self) -> Tuple[bool, Optional[int]]:
-        """
-        Check if we should warn about approaching time limit.
-
-        Returns:
-            Tuple of (should_warn, minutes_remaining)
-        """
-        ...
-
-    def get_usage_summary(self) -> str:
-        """Get human-readable usage summary"""
         ...
 
 

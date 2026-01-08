@@ -10,11 +10,14 @@ import json
 import pytest
 from pathlib import Path
 
+import config
 RUN_HAILO_TESTS = os.getenv("PISAT_RUN_HAILO_TESTS", "0") == "1"
+RUN_HAILO_BACKEND = config.STT_BACKEND == "hailo"
 from tests.test_utils import read_wav_mono_int16
 
 pytestmark = [
     pytest.mark.skipif(not RUN_HAILO_TESTS, reason="Set PISAT_RUN_HAILO_TESTS=1 for Hailo E2E tests"),
+    pytest.mark.skipif(not RUN_HAILO_BACKEND, reason="STT_BACKEND is not 'hailo'"),
 ]
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

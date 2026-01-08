@@ -1,6 +1,7 @@
 import unittest
 import os
 from tests.test_base import PiSatTestBase
+import config
 
 class TestHailoSingleton(PiSatTestBase):
     """Test singleton pattern for Hailo STT"""
@@ -8,6 +9,8 @@ class TestHailoSingleton(PiSatTestBase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        if config.STT_BACKEND != "hailo":
+            raise unittest.SkipTest("STT_BACKEND is not 'hailo'")
         if os.getenv("PISAT_RUN_HAILO_TESTS", "0") != "1":
             raise unittest.SkipTest("Set PISAT_RUN_HAILO_TESTS=1 to run Hailo hardware tests")
     

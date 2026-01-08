@@ -7,29 +7,32 @@ import wave
 import threading
 import config
 from .logging_utils import setup_logger, log_info, log_success, log_warning, log_error, log_debug, log_stt
-from .retry_utils import retry_transient_errors
 from .audio_file_utils import to_int16, write_wav_int16
 
 logger = setup_logger(__name__)
 
-# Pipeline processing delay (seconds) - allows Hailo hardware to process data
 HAILO_PIPELINE_PROCESSING_DELAY = 0.2
 
 class HailoSTT:
-    def __init__(self, debug=False, language=None):
-        """
-        Initialize Hailo STT engine.
-
-        Args:
-            debug: Enable debug logging
-            language: Language code (e.g., 'en', 'fr')
-        """
+    def __init__(self, debug=False, language=None, model=None):
         self.debug = debug
-        self.language = language or config.HAILO_STT_LANGUAGE
+        self.language = language or config.LANGUAGE
+        self.model = model or config.HAILO_STT_MODEL
         self._lock = threading.Lock()  # Thread-safe pipeline access
         self._consecutive_failures = 0  # Track failures to trigger auto-rebuild
         self._pipeline = None
         self._initialized = False
+
+        # Metrics tracking
+        self._metrics = {
+            'total_requests': 0,
+            'successful': 0,
+            'failed': 0,
+            'retries': 0,
+            'rebuilds': 0,
+            'lock_timeouts': 0
+        }
+        self._last_metrics_log = time.time()
 
         self._setup_hailo_path()
         self._load_model(language=self.language)
@@ -67,11 +70,11 @@ class HailoSTT:
                 decoder_path,
                 variant,
                 multi_process_service=False,
-                language=language or config.HAILO_STT_LANGUAGE,
+                language=language or config.LANGUAGE,
             )
 
             self._initialized = True
-            self.language = language or config.HAILO_STT_LANGUAGE
+            self.language = language or config.LANGUAGE
 
             if self.debug:
                 log_success(logger, f"Loaded Hailo Whisper {variant} model (language: {self.language})")
@@ -90,10 +93,16 @@ class HailoSTT:
                 log_warning(logger, "STT not available - no model loaded")
             return ""
 
-        return self._transcribe_with_retry(audio_data)
+        self._metrics['total_requests'] += 1
+        result = self._transcribe_with_retry(audio_data)
+
+        # Log metrics every 50 requests (not too spammy)
+        if self._metrics['total_requests'] % 50 == 0:
+            self._log_metrics()
+
+        return result
     
     def _transcribe_with_retry(self, audio_data):
-        """Transcribe audio with retry logic and auto-rebuild on repeated failures"""
         max_retries = config.STT_MAX_RETRIES
         initial_delay = config.STT_RETRY_DELAY
         backoff_factor = config.STT_RETRY_BACKOFF
@@ -108,8 +117,10 @@ class HailoSTT:
 
                 if result:
                     self._consecutive_failures = 0  # Reset on success
+                    self._metrics['successful'] += 1
                     if attempt > 0:
                         log_success(logger, f"STT succeeded after {attempt} retries")
+                        self._metrics['retries'] += attempt
                     return result
                 
                 if attempt < max_retries:
@@ -119,6 +130,7 @@ class HailoSTT:
                     continue
                 else:
                     self._handle_failure("empty transcription after all retries")
+                    self._metrics['failed'] += 1
                     return ""
                     
             except (RuntimeError, ConnectionError, OSError, IOError) as e:
@@ -141,7 +153,6 @@ class HailoSTT:
         return ""
     
     def _handle_failure(self, reason):
-        """Track failures and trigger pipeline rebuild if threshold exceeded"""
         self._consecutive_failures += 1
         log_warning(logger, f"STT {reason} (consecutive failures: {self._consecutive_failures})")
         self._maybe_rebuild_pipeline()
@@ -180,6 +191,7 @@ class HailoSTT:
             if not acquired:
                 log_error(logger, f"Hailo pipeline lock timeout ({config.STT_LOCK_TIMEOUT}s) - possible hardware hang")
                 self._consecutive_failures += 1
+                self._metrics['lock_timeouts'] += 1
                 self._maybe_rebuild_pipeline()
                 return ""
 
@@ -224,6 +236,7 @@ class HailoSTT:
         if self._consecutive_failures >= config.STT_REBUILD_THRESHOLD:
             log_warning(logger, f"Rebuilding Hailo pipeline after {self._consecutive_failures} consecutive failures")
             self._consecutive_failures = 0
+            self._metrics['rebuilds'] += 1
             try:
                 self.cleanup()
             except (RuntimeError, OSError) as e:
@@ -231,7 +244,27 @@ class HailoSTT:
             except Exception as e:
                 log_error(logger, f"Unexpected error during pipeline cleanup: {e}")
             self._load_model(language=self.language)
-    
+
+    def _log_metrics(self):
+        """Log STT performance metrics"""
+        m = self._metrics
+        total = m['total_requests']
+        if total == 0:
+            return
+
+        success_rate = (m['successful'] / total) * 100
+        failure_rate = (m['failed'] / total) * 100
+        avg_retries = m['retries'] / m['successful'] if m['successful'] > 0 else 0
+
+        log_info(logger,
+            f"STT Metrics: {total} requests | "
+            f"Success: {success_rate:.1f}% | "
+            f"Failed: {failure_rate:.1f}% | "
+            f"Avg retries: {avg_retries:.2f} | "
+            f"Rebuilds: {m['rebuilds']} | "
+            f"Lock timeouts: {m['lock_timeouts']}"
+        )
+
     def reload(self):
         """Force reload the model"""
         if self.debug:
@@ -286,7 +319,7 @@ class HailoSTT:
 
     # ---- helpers (no functional change) ----
     def _get_variant(self):
-        variant = config.HAILO_STT_MODEL.split("-")[-1]
+        variant = self.model.split("-")[-1]
         return variant if variant in ("tiny", "base") else "base"
 
     def _select_hef_paths(self, variant):

@@ -27,7 +27,13 @@ Canonical checklist: `docs/AUDIO.md`.
 Quick sanity:
 ```bash
 aplay -D default -q resources/beep-short.wav
+sox resources/beep-short.wav -t raw -r 48000 -e signed -b 16 -c 1 - repeat 2 pad 0.03 0.05 | pw-play --format s16 --rate 48000 --channels 1 --volume 1.0 -
 mpc play
+```
+
+If the wake beep is silent when idle, confirm PipeWire user services are running:
+```bash
+systemctl --user status pipewire pipewire-pulse wireplumber
 ```
 
 ## MPD Problems
@@ -54,7 +60,7 @@ mpc play
 ## STT Problems (Hailo Whisper)
 
 - Force language:
-  - `export HAILO_STT_LANGUAGE=fr` (or `en`)
+  - `export LANGUAGE=fr` (or `en`)
 - If STT returns empty:
   - increase `MAX_RECORDING_TIME`
   - tune VAD: `VAD_LEVEL`, `SILENCE_THRESHOLD`, `VAD_SPEECH_MULTIPLIER`, `VAD_SILENCE_DURATION`

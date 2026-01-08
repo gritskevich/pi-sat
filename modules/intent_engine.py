@@ -1,54 +1,12 @@
-"""
-Intent Engine - Multi-Language Voice Command Classification
-
-Language-aware fuzzy matching for intent classification.
-Supports English and French with easy extensibility for additional languages.
-
-Key Features:
-- Multi-language support (English, French, easily extensible)
-- Fuzzy matching with thefuzz library (tolerates typos)
-- Language-specific parameter extraction
-- Automatic language detection from config
-- No translation required - direct pattern matching
-- Fast, deterministic, offline classification
-
-Architecture:
-- Language packs live in `modules/intent_patterns.py` (data-only)
-- Shared fuzzy matching logic (DRY)
-- Language-aware regex extraction
-- Auto-selects language based on config.HAILO_STT_LANGUAGE
-
-Supported Languages:
-- English (en)
-- French (fr)
-- Extensible: Add new language dict to LANGUAGE_PATTERNS
-
-Supported Intents (20+):
-- play_music, play_favorites, pause, resume, stop, next, previous
-- volume_up, volume_down, add_favorite, sleep_timer
-- repeat_song, repeat_off, shuffle_on, shuffle_off
-- play_next, add_to_queue
-- set_alarm, cancel_alarm
-- check_bedtime, set_bedtime, check_time_limit
-"""
-
 import re
 import logging
-import unicodedata
 from typing import Dict, Optional, Tuple, List
 from thefuzz import fuzz
 
 import config
 from modules.interfaces import Intent
 from modules.intent_patterns import ACTIVE_INTENTS, LANGUAGE_PATTERNS
-
-# Phonetic matching (optional) for "sounds alike" intent matching
-try:
-    from abydos.phonetic import BeiderMorse
-    PHONETIC_AVAILABLE = True
-except ImportError:
-    PHONETIC_AVAILABLE = False
-    BeiderMorse = None
+from modules.intent_matchers import build_intent_matcher_stack
 
 # Logging
 logger = logging.getLogger(__name__)
@@ -78,13 +36,6 @@ _FAST_INTENT_REGEX = {
 # ============================================================================
 
 class IntentEngine:
-    """
-    Multi-language fuzzy command classification engine.
-
-    Maps voice commands to structured intents using language-aware fuzzy matching.
-    No machine learning, no translation, no LLM required.
-    """
-
     REQUIRED_PARAMS_INTENTS = {
         'play_next',
         'add_to_queue',
@@ -111,27 +62,19 @@ class IntentEngine:
         self.fuzzy_threshold = fuzzy_threshold
         self.debug = debug
         self._sorted_patterns_cache: Dict[str, List[Tuple[str, Dict]]] = {}
-
-        # Phonetic matching (optional, aligns with MusicLibrary hybrid approach)
-        self.phonetic_weight = getattr(config, "PHONETIC_WEIGHT", 0.6)
-        self.phonetic_enabled = PHONETIC_AVAILABLE
-        self._phonetic_matcher = None
-        self._phonetic_cache: Dict[str, str] = {}
-        self._query_phonetic_cache: Dict[str, str] = {}
-        if self.phonetic_enabled:
-            try:
-                self._phonetic_matcher = BeiderMorse(
-                    language_arg=0,
-                    name_mode='gen',
-                    match_mode='approx'
-                )
-            except Exception:
-                self.phonetic_enabled = False
-                self._phonetic_matcher = None
+        matcher_names = getattr(config, "INTENT_MATCHERS", None)
+        if isinstance(matcher_names, str):
+            matcher_names = [name.strip() for name in matcher_names.split(",") if name.strip()]
+        if not matcher_names:
+            matcher_names = ["text", "phonetic"]
+        self._matcher_stack = build_intent_matcher_stack(
+            matcher_names=matcher_names,
+            phonetic_weight=getattr(config, "PHONETIC_WEIGHT", 0.6)
+        )
 
         # Auto-detect language from config if not specified
         if language is None:
-            language = getattr(config, 'HAILO_STT_LANGUAGE', 'fr')  # Default: French
+            language = getattr(config, 'LANGUAGE', 'fr')  # Default: French
 
         # Validate language
         if language not in LANGUAGE_PATTERNS:
@@ -155,48 +98,11 @@ class IntentEngine:
             f"intents={len(self.intent_patterns)}"
         )
 
-    def _phonetic_allowed(self, text: str) -> bool:
-        norm = unicodedata.normalize('NFKD', text.lower())
-        norm = ''.join(ch for ch in norm if not unicodedata.combining(ch))
-        norm = re.sub(r'[^a-z0-9]+', '', norm).strip()
-        return len(norm) >= 3
-
-    def _encode_phonetic(self, text: str, cache: Dict[str, str]) -> str:
-        if not self.phonetic_enabled or not self._phonetic_matcher:
-            return ""
-        if not text or not self._phonetic_allowed(text):
-            return ""
-        norm = unicodedata.normalize('NFKD', text.lower())
-        norm = ''.join(ch for ch in norm if not unicodedata.combining(ch))
-        norm = re.sub(r'[^a-z0-9]+', '', norm).strip()
-        cached = cache.get(norm)
-        if cached is not None:
-            return cached
-        try:
-            encoded = self._phonetic_matcher.encode(norm or text)
-            phonetic_str = '|'.join(sorted(encoded)) if isinstance(encoded, tuple) else str(encoded)
-        except Exception:
-            phonetic_str = ""
-        cache[norm] = phonetic_str
-        return phonetic_str
-
-    def _get_query_phonetic(self, text: str) -> str:
-        return self._encode_phonetic(text, self._query_phonetic_cache)
-
-    def _get_trigger_phonetic(self, text: str) -> str:
-        return self._encode_phonetic(text, self._phonetic_cache)
-
     def _score_trigger(self, text: str, trigger: str) -> Tuple[int, int, float]:
-        text_score = fuzz.token_set_ratio(text, trigger)
-        if not self.phonetic_enabled:
-            return text_score, 0, float(text_score)
-        query_phonetic = self._get_query_phonetic(text)
-        trigger_phonetic = self._get_trigger_phonetic(trigger)
-        if not query_phonetic or not trigger_phonetic:
-            return text_score, 0, float(text_score)
-        phonetic_score = fuzz.token_set_ratio(query_phonetic, trigger_phonetic)
-        combined = (text_score * (1.0 - self.phonetic_weight)) + (phonetic_score * self.phonetic_weight)
-        return text_score, phonetic_score, combined
+        breakdown = self._matcher_stack.score(text, trigger)
+        text_score = int(breakdown.scores.get("text", 0))
+        phonetic_score = int(breakdown.scores.get("phonetic", 0))
+        return text_score, phonetic_score, float(breakdown.combined)
 
     def _best_trigger_match(self, text: str, triggers: List[str]) -> Tuple[str, float, int, int]:
         best_phrase = None
@@ -271,7 +177,12 @@ class IntentEngine:
             .replace("pourrais-tu", "pourrais tu")
             .replace("est-ce", "est ce")
             .replace("mets-moi", "mets moi")
+            .replace("mets-nous", "mets nous")
             .replace("fais-moi", "fais moi")
+            .replace("fais-nous", "fais nous")
+            .replace("balance-moi", "balance moi")
+            .replace("envoie-moi", "envoie moi")
+            .replace("vas-y", "vas y")
         )
         text = re.sub(r'^(?:ok|hey|salut)\s+alexa[\s,]+', '', text)
         text = re.sub(r'^alexa[\s,]+', '', text)
@@ -302,7 +213,7 @@ class IntentEngine:
                 continue
             if intent_type == 'play_music':
                 if active_language == 'fr':
-                    if not re.search(r'\b(joue|jouer|mets|mettre|lance|lancer|écoute|ecoute|écouter|ecouter|entends|entendre|veux|voudrais|aimerais|pourrais|peux|fais)\b', text):
+                    if not re.search(r'\b(joue|jouer|mets|mettre|lance|lancer|balance|envoie|écoute|ecoute|écouter|ecouter|entends|entendre|veux|voudrais|aimerais|pourrais|peux|fais|allez|vas)\b', text):
                         continue
                 else:
                     if not re.search(r'(?:\bplay\b|\bput on\b|\bstart playing\b|\bi want to listen\b|\bi want to hear\b)', text):
@@ -320,16 +231,13 @@ class IntentEngine:
 
             if phrase:
                 if self.debug:
-                    if self.phonetic_enabled:
-                        logger.debug(
-                            f"  {intent_type}: {score:.1f} "
-                            f"(text={text_score}, phonetic={phonetic_score}) ('{phrase}')"
-                        )
-                    else:
-                        logger.debug(f"  {intent_type}: {score:.1f} ('{phrase}')")
+                    score_detail = f"text={text_score}"
+                    if phonetic_score:
+                        score_detail += f", phonetic={phonetic_score}"
+                    logger.debug(f"  {intent_type}: {score:.1f} ({score_detail}) ('{phrase}')")
 
                 if intent_type == 'stop':
-                    if not re.search(r'\b(arrête|arrete|stop)\b', text) and score < 80:
+                    if not re.search(r'\b(arrête|arrete|stop|coupe|éteins|eteins|suffit|assez|fini|silence)\b', text) and score < 80:
                         continue
                 if intent_type == 'volume_up':
                     if not re.search(r'\b(plus fort|monte|augmente|plus haut)\b', text) and score < 80:
@@ -625,47 +533,6 @@ class IntentEngine:
 
         return f"{hour:02d}:{minute:02d}"
 
-    def search_music(self, query: str, music_library: List[str]) -> Optional[Tuple[str, float]]:
-        """
-        Fuzzy search music library for best match.
-
-        Handles typos and partial matches (e.g., "frozzen" → "Frozen").
-
-        Args:
-            query: Search query (song name, artist, etc.)
-            music_library: List of available songs/artists
-
-        Returns:
-            Tuple of (matched_item, confidence) or None if no match
-        """
-        if not query or not music_library:
-            return None
-
-        query = query.strip().lower()
-
-        # Use fuzzy matching to find best match
-        # token_set_ratio handles partial matches better
-        match_result = process.extractOne(
-            query,
-            music_library,
-            scorer=fuzz.token_set_ratio
-        )
-
-        if not match_result:
-            return None
-
-        matched_item, score = match_result[0], match_result[1]
-
-        # Convert score to confidence
-        confidence = score / 100.0
-
-        if score < self.fuzzy_threshold:
-            logger.warning(f"Music search '{query}' below threshold: {score}")
-            return None
-
-        logger.info(f"Music search: '{query}' → '{matched_item}' ({confidence:.2f})")
-        return (matched_item, confidence)
-
     def get_supported_intents(self) -> List[str]:
         """Get list of supported intent types"""
         return list(self.intent_patterns.keys())
@@ -696,91 +563,3 @@ class IntentEngine:
         logger.info(f"Language changed to: {language}")
         return True
 
-
-def main():
-    """Test multi-language intent classification"""
-    import logging
-    logging.basicConfig(level=logging.INFO)
-
-    print("Multi-Language Intent Classification Test\n")
-    print("=" * 80)
-
-    # Test English
-    print("\n" + "=" * 80)
-    print("ENGLISH TESTS")
-    print("=" * 80)
-
-    engine_en = IntentEngine(language='en', debug=True)
-
-    test_commands_en = [
-        "Play Frozen",
-        "Play the Beatles",
-        "Pause",
-        "Volume up",
-        "I love this song",
-        "Stop in 30 minutes",
-        "Repeat this song",
-        "Shuffle",
-        "Play Frozen next",
-        "Wake me up at 7 AM",
-        "What's my bedtime?",
-    ]
-
-    for cmd in test_commands_en:
-        print(f"\nCommand: '{cmd}'")
-        intent = engine_en.classify(cmd)
-
-        if intent:
-            print(f"  ✓ Intent: {intent.intent_type}")
-            print(f"  ✓ Confidence: {intent.confidence:.2%}")
-            if intent.parameters:
-                print(f"  ✓ Parameters: {intent.parameters}")
-        else:
-            print("  ✗ No match")
-
-    # Test French
-    print("\n" + "=" * 80)
-    print("FRENCH TESTS")
-    print("=" * 80)
-
-    engine_fr = IntentEngine(language='fr', debug=True)
-
-    test_commands_fr = [
-        "Joue Frozen",
-        "Joue les Beatles",
-        "Pause",
-        "Plus fort",
-        "J'adore cette chanson",
-        "Arrête dans 30 minutes",
-        "Répète cette chanson",
-        "Mélange",
-        "Joue Frozen ensuite",
-        "Réveille-moi à 7 heures",
-        "C'est quand mon heure de coucher?",
-    ]
-
-    for cmd in test_commands_fr:
-        print(f"\nCommande: '{cmd}'")
-        intent = engine_fr.classify(cmd)
-
-        if intent:
-            print(f"  ✓ Intent: {intent.intent_type}")
-            print(f"  ✓ Confidence: {intent.confidence:.2%}")
-            if intent.parameters:
-                print(f"  ✓ Paramètres: {intent.parameters}")
-        else:
-            print("  ✗ Pas de correspondance")
-
-    # Test language auto-detection from config
-    print("\n" + "=" * 80)
-    print("AUTO-DETECTION TEST (from config)")
-    print("=" * 80)
-
-    engine_auto = IntentEngine(debug=True)
-    print(f"\nAuto-detected language: {engine_auto.language}")
-    print(f"Supported languages: {engine_auto.get_supported_languages()}")
-    print(f"Supported intents: {len(engine_auto.get_supported_intents())}")
-
-
-if __name__ == '__main__':
-    main()

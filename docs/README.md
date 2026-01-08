@@ -1,28 +1,27 @@
-# Pi-Sat Docs Index
+# Pi-Sat Docs
 
-Open the minimum doc that answers your question.
+Quick reference for common tasks.
 
-## Start Here
+## Setup & Running
 
-- `AGENTS.md` / `CLAUDE.md` – AI/dev quick reference (same file; `AGENTS.md` is a symlink).
-- `README.md` – what Pi‑Sat is + quick run.
-- `INSTALL.md` – setup on a Raspberry Pi 5.
-- `docs/AUDIO.md` – audio routing, devices, volume, ducking.
+- **INSTALL.md** (root) – Hardware setup + installation
+- **DEPLOYMENT.md** (root) – Production deployment checklist
+- **pi-sat.sh** – `install`, `run`, `run_debug`, `download_voice`
 
-## Day‑To‑Day Dev
+## Development
 
-- `tests/README.md` – how to run tests (and which ones need hardware).
-- `docs/TROUBLESHOOTING.md` – common failures + fixes.
-- `docs/IMPLEMENTATION_PATTERNS.md` – code patterns (wake/VAD/STT/intent/MPD/TTS).
+- **CLAUDE.md** (root) – LLM quick reference (module map, principles)
+- **tests/README.md** – Test suite (unit + hardware)
+- **docs/TROUBLESHOOTING.md** – Common failures
 
-## Deep Dives
+## Technical Details
 
-- `docs/INTENT_OPTIMIZATION_2025.md` – comprehensive intent system docs (new volume control, expanded French vocabulary).
-- `docs/PHONETIC_SEARCH_ARCHITECTURE.md` – music matching (hybrid fuzzy + phonetic).
-- `docs/MUSIC_LIBRARY_ORGANIZATION.md` – how to organize files for best matching.
-- `docs/RESEARCH.md` – decisions/benchmarks/trade‑offs.
-- `docs/SCHEMA.md` – small ASCII system diagram.
+- **docs/PIPELINE.md** – Complete flow diagram + config reference
+- **docs/AUDIO.md** – Audio routing, volume architecture
+- **docs/WAKE_WORD_DETECTION.md** – Wake word tuning
+- **docs/PHONETIC_ALGORITHM_COMPARISON.md** – FONEM vs BeiderMorse benchmarks
 
-## History
+## Need Help?
 
-- `docs/archive/` – old session notes and superseded docs (only open if you need history).
+- Check TROUBLESHOOTING.md first
+- GitHub Issues: https://github.com/gritskevich/pi-sat/issues

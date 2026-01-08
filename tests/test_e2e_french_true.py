@@ -18,11 +18,14 @@ import json
 import pytest
 from pathlib import Path
 
+import config
 RUN_HAILO_TESTS = os.getenv("PISAT_RUN_HAILO_TESTS", "0") == "1"
+RUN_HAILO_BACKEND = config.STT_BACKEND == "hailo"
 from tests.test_utils import read_wav_mono_int16
 
 pytestmark = [
     pytest.mark.skipif(not RUN_HAILO_TESTS, reason="Set PISAT_RUN_HAILO_TESTS=1 for Hailo E2E tests"),
+    pytest.mark.skipif(not RUN_HAILO_BACKEND, reason="STT_BACKEND is not 'hailo'"),
 ]
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -100,6 +103,12 @@ class FakeMPD:
         self.last_query = None
         self.last_confidence = None
         self._music_library = None
+        self._responses = json.loads(
+            Path(__file__).resolve().parent.parent.joinpath("resources/response_library.json").read_text(encoding="utf-8")
+        )
+
+    def _pick(self, key, **params):
+        return self._responses.get("fr", {}).get(key, [""])[0].format(**params)
 
     def get_music_library(self):
         """Return music library for MusicResolver."""
@@ -112,43 +121,43 @@ class FakeMPD:
         self.commands.append(('play', query))
         self.last_query = query
         self.last_confidence = confidence
-        return True, f"Playing {query}", confidence or 1.0
+        return True, self._pick("playing_song", song=query), confidence or 1.0
 
     def pause(self):
         self.commands.append(('pause',))
-        return True, "Paused"
+        return True, self._pick("paused")
 
     def resume(self):
         self.commands.append(("resume",))
-        return True, "Resumed"
+        return True, self._pick("resuming")
 
     def stop(self):
         self.commands.append(("stop",))
-        return True, "Stopped"
+        return True, self._pick("stopped")
 
     def next(self):
         self.commands.append(('next',))
-        return True, "Next"
+        return True, self._pick("next_song")
 
     def previous(self):
         self.commands.append(("previous",))
-        return True, "Previous"
+        return True, self._pick("previous_song")
 
     def volume_up(self, step=10):
         self.commands.append(('volume_up', step))
-        return True, "Volume up"
+        return True, self._pick("volume_up")
 
     def volume_down(self, step=10):
         self.commands.append(("volume_down", step))
-        return True, "Volume down"
+        return True, self._pick("volume_down")
 
     def play_favorites(self):
         self.commands.append(("play_favorites",))
-        return True, "Playing favorites"
+        return True, self._pick("favorites")
 
     def add_to_favorites(self):
         self.commands.append(('add_favorite',))
-        return True, "Added to favorites"
+        return True, self._pick("liked")
 
 
 @pytest.fixture(scope="module")

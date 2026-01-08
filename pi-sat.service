@@ -8,9 +8,11 @@ Type=simple
 User=dmitry
 WorkingDirectory=/home/dmitry/pi-sat
 Environment="PATH=/home/dmitry/pi-sat/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="XDG_RUNTIME_DIR=/run/user/%U"
+Environment="PULSE_SERVER=unix:/run/user/%U/pulse/native"
 
 # Use venv Python with unbuffered output for better logging
-ExecStart=/home/dmitry/pi-sat/venv/bin/python -u main.py
+ExecStart=/home/dmitry/pi-sat/venv/bin/python -u modules/orchestrator.py
 
 # Automatic restart on crash
 Restart=always

@@ -1,16 +1,3 @@
-"""
-Language-dependent intent patterns (data only).
-
-Kept separate from `modules/intent_engine.py` so the engine logic stays DRY and
-language packs can evolve without touching classification code.
-
-KISS: Only active intents are defined. Add more when needed.
-"""
-
-# ============================================================================
-# ENGLISH INTENT PATTERNS
-# ============================================================================
-
 INTENT_PATTERNS_EN = {
     'play_music': {
         'triggers': [
@@ -60,12 +47,20 @@ INTENT_PATTERNS_EN = {
         'extract': None,
         'priority': 10,
     },
+    'set_sleep_timer': {
+        'triggers': [
+            'sleep timer',
+            'set sleep timer',
+            'timer',
+            'set timer',
+            'stop in',
+            'turn off in',
+        ],
+        'extract': r'(?:sleep\s+timer|set\s+sleep\s+timer|set\s+timer|timer|stop\s+in|turn\s+off\s+in)\s+(\d+)\s+(?:minute|minutes|min)',
+        'priority': 10,
+    },
 }
 
-
-# ============================================================================
-# FRENCH INTENT PATTERNS
-# ============================================================================
 
 INTENT_PATTERNS_FR = {
     'play_music': {
@@ -79,13 +74,19 @@ INTENT_PATTERNS_FR = {
             'joue moi',
             'mets moi',
             'mets-moi',
+            'mets nous',
+            'mets-nous',
             'fais jouer',
             'fais moi écouter',
             'fais-moi écouter',
+            'fais nous écouter',
+            'fais-nous écouter',
             'est ce que tu peux jouer',
             'est ce que tu peux mettre',
             'pourrais tu jouer',
             'pourrais tu mettre',
+            'pourrais-tu jouer',
+            'pourrais-tu mettre',
             'tu pourrais jouer',
             'tu pourrais mettre',
             'tu veux bien jouer',
@@ -96,8 +97,14 @@ INTENT_PATTERNS_FR = {
             "j'ai envie d'entendre",
             'tu peux jouer',
             'tu peux mettre',
+            'tu peux me jouer',
+            'tu peux me mettre',
+            'tu peux nous jouer',
+            'tu peux nous mettre',
             'peux tu jouer',
             'peux tu mettre',
+            'peux-tu jouer',
+            'peux-tu mettre',
             'peux jouer',
             'peux mettre',
             'mets la chanson',
@@ -110,21 +117,42 @@ INTENT_PATTERNS_FR = {
             "j'aimerais écouter",
             "j'aimerais entendre",
             'je vais écouter',
+            'on veut écouter',
+            'on veut ecouter',
+            'on peut écouter',
+            'on peut ecouter',
+            'on va écouter',
+            'on va ecouter',
+            'balance',
+            'balance moi',
+            'balance-moi',
+            'envoie',
+            'envoie moi',
+            'envoie-moi',
+            'allez joue',
+            'allez mets',
+            'vas-y joue',
+            'vas-y mets',
+            'vas y joue',
+            'vas y mets',
         ],
         'extract': (
             r'(?:'
-            r'joue|mets|mettre|lance|'
-            r'fais\s+(?:moi\s+)?(?:jouer|écouter|ecouter)|'
+            r'joue|mets|mettre|lance|balance|envoie|'
+            r'fais\s+(?:(?:moi|nous)[\s-])?(?:jouer|écouter|ecouter)|'
             r'est\s+ce\s+que\s+tu\s+peux\s+(?:jouer|mettre)|'
-            r'(?:pourrais\s+tu|tu\s+pourrais)\s+(?:jouer|mettre)|'
+            r'(?:pourrais[\s-]tu|tu\s+pourrais)\s+(?:jouer|mettre)|'
             r'tu\s+veux\s+bien\s+(?:jouer|mettre)|'
             r'je\s+veux\s+que\s+tu\s+(?:joues|mettes)|'
             r"j(?:'| )ai\s+envie\s+d(?:'|e)\s*(?:écouter|ecouter|entendre)|"
-            r'tu\s+peux\s+(?:jouer|mettre)|'
-            r'peux\s+(?:tu\s+)?(?:jouer|mettre)|'
+            r'tu\s+peux\s+(?:(?:me|nous)\s+)?(?:jouer|mettre)|'
+            r'peux[\s-]tu\s+(?:jouer|mettre)|'
+            r'peux\s+(?:jouer|mettre)|'
             r'je\s+(?:veux|voudrais|vais)\s+(?:écouter|ecouter|entendre)|'
-            r"j'aimerais\s+(?:écouter|ecouter|entendre)"
-            r')\s+(?:moi\s+)?(.+)'
+            r"j'aimerais\s+(?:écouter|ecouter|entendre)|"
+            r'on\s+(?:veut|peut|va)\s+(?:écouter|ecouter)|'
+            r'(?:allez|vas[\s-]y)\s+(?:joue|mets)'
+            r')\s+(?:(?:moi|nous)[\s-])?(.+)'
         ),
         'priority': 10,
     },
@@ -193,7 +221,11 @@ INTENT_PATTERNS_FR = {
             'arrete',
             'arrêter',
             'arreter',
+            'arrête ça',
+            'arrete ça',
             'stop',
+            'stop ça',
+            'ok stop',
             'arrête la musique',
             'arrete la musique',
             'arrête de jouer',
@@ -208,14 +240,41 @@ INTENT_PATTERNS_FR = {
             'eteins tout',
             'coupe',
             'coupe la musique',
+            'coupe ça',
+            'coupe tout',
             'termine',
             'fini',
             'finis',
+            'c\'est fini',
+            'c est fini',
             'silence',
             'tais-toi',
             'tais toi',
+            'ça suffit',
+            'ca suffit',
+            'assez',
+            'c\'est assez',
+            'c est assez',
+            'ça va',
+            'ca va',
+            'c\'est bon',
+            'c est bon',
         ],
         'extract': None,
+        'priority': 10,
+    },
+    'set_sleep_timer': {
+        'triggers': [
+            'minuteur',
+            'minuterie',
+            'arrête dans',
+            'arrete dans',
+            'éteins dans',
+            'eteins dans',
+            'stop dans',
+            'coupe dans',
+        ],
+        'extract': r'(?:minuteur|minuterie|arrête\s+dans|arrete\s+dans|éteins\s+dans|eteins\s+dans|stop\s+dans|coupe\s+dans)\s+(\d+)\s+(?:minute|minutes|min)',
         'priority': 10,
     },
 }

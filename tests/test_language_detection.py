@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
+import config
 from modules.hailo_stt import HailoSTT
 
 
@@ -47,6 +48,8 @@ class TestLanguageDetectionFR(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        if config.STT_BACKEND != "hailo":
+            raise unittest.SkipTest("STT_BACKEND is not 'hailo'")
         if os.getenv("PISAT_RUN_HAILO_TESTS", "0") != "1":
             raise unittest.SkipTest("Set PISAT_RUN_HAILO_TESTS=1 to run Hailo hardware tests")
 
@@ -87,8 +90,8 @@ class TestLanguageDetectionFR(unittest.TestCase):
             stt.cleanup()
 
     def test_language_param_overrides_env(self):
-        prev = os.environ.get("HAILO_STT_LANGUAGE")
-        os.environ["HAILO_STT_LANGUAGE"] = "en"
+        prev = os.environ.get("LANGUAGE")
+        os.environ["LANGUAGE"] = "en"
         try:
             stt = HailoSTT(debug=True, language="fr")
             try:
@@ -99,11 +102,10 @@ class TestLanguageDetectionFR(unittest.TestCase):
                 stt.cleanup()
         finally:
             if prev is None:
-                os.environ.pop("HAILO_STT_LANGUAGE", None)
+                os.environ.pop("LANGUAGE", None)
             else:
-                os.environ["HAILO_STT_LANGUAGE"] = prev
+                os.environ["LANGUAGE"] = prev
 
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

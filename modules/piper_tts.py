@@ -10,6 +10,7 @@ import os
 import shutil
 from pathlib import Path
 from modules.logging_utils import setup_logger
+from modules.response_library import ResponseLibrary
 
 logger = setup_logger(__name__)
 
@@ -44,6 +45,7 @@ class PiperTTS:
         # Get Piper binary path
         import config
         self.piper_binary = config.PIPER_BINARY_PATH
+        self._responses = ResponseLibrary(language=getattr(config, 'LANGUAGE', 'en'))
 
         # Validate setup
         self._validate()
@@ -82,9 +84,18 @@ class PiperTTS:
         Returns:
             str: Preprocessed text with pauses
         """
+        # Add a short leading pause for clearer starts.
+        text = text.strip()
+        if text and not text.startswith(","):
+            text = f", {text}"
+
         # Replace " - " (hyphen with spaces) with ", " for natural pause
         # Example: "Louane - maman" → "Louane, maman"
         text = text.replace(" - ", ", ")
+
+        # Add a pause before common tails to separate song name from the rest.
+        text = text.replace(" pour toi", "... pour toi")
+        text = text.replace(" pour vous", "... pour vous")
 
         # Replace standalone hyphens (less common)
         text = text.replace("-", ", ")
@@ -115,41 +126,60 @@ class PiperTTS:
         try:
             logger.debug(f"Speaking: '{text}'")
 
-            # Use shell piping for playback.
-            # Pulse/pipewire: feed raw PCM directly to pw-play (NO volume scaling)
-            # ALSA: convert to WAV + resample via sox (NO volume scaling), then aplay
-            pw_play = None
-            if self.output_device in ("pulse", "pipewire"):
-                pw_play = shutil.which("pw-play")
-
-            if pw_play:
-                # Play at 100% (1.0), PulseAudio sink controls actual volume
-                player = f"pw-play --format s16 --rate 22050 --channels 1 --volume 1.0 -"
-                cmd = f'''echo {subprocess.list2cmdline([text])} | \
-{self.piper_binary} --model {subprocess.list2cmdline([str(self.model_path)])} --output-raw | \
-{player}'''
-            else:
-                # Use sox to resample to stable 48k stereo (NO volume scaling)
-                sox_out = "-t wav -r 48000 -c 2 -"
-                player = f"aplay -D {self.output_device} -q"
-                cmd = f'''echo {subprocess.list2cmdline([text])} | \
-{self.piper_binary} --model {subprocess.list2cmdline([str(self.model_path)])} --output-raw | \
-sox -t raw -r 22050 -e signed -b 16 -c 1 - {sox_out} | \
-{player}'''
-
-            result = subprocess.run(
-                cmd,
-                shell=True,
+            # Generate raw PCM from Piper (avoid shell/echo to preserve UTF-8 accents).
+            piper_proc = subprocess.run(
+                [self.piper_binary, "--model", str(self.model_path), "--output-raw"],
+                input=text.encode("utf-8"),
                 capture_output=True,
-                text=True,
                 timeout=30
             )
 
-            if result.returncode != 0:
-                logger.error(f"Speech command failed (code {result.returncode})")
-                if result.stderr:
-                    logger.debug(f"Error output: {result.stderr}")
+            if piper_proc.returncode != 0:
+                logger.error(f"Speech command failed (code {piper_proc.returncode})")
+                if piper_proc.stderr:
+                    logger.debug(f"Error output: {piper_proc.stderr.decode('utf-8', errors='replace')}")
                 return False
+
+            raw_audio = piper_proc.stdout
+
+            # Pulse/pipewire: feed raw PCM directly to pw-play (NO volume scaling)
+            # ALSA: convert to WAV + resample via sox (NO volume scaling), then aplay
+            if self.output_device in ("pulse", "pipewire") and shutil.which("pw-play"):
+                play_proc = subprocess.run(
+                    ["pw-play", "--format", "s16", "--rate", "22050", "--channels", "1", "--volume", "1.0", "-"],
+                    input=raw_audio,
+                    capture_output=True,
+                    timeout=30
+                )
+                if play_proc.returncode != 0:
+                    logger.error(f"Speech playback failed (code {play_proc.returncode})")
+                    if play_proc.stderr:
+                        logger.debug(f"Error output: {play_proc.stderr.decode('utf-8', errors='replace')}")
+                    return False
+            else:
+                sox_proc = subprocess.run(
+                    ["sox", "-t", "raw", "-r", "22050", "-e", "signed", "-b", "16", "-c", "1", "-", "-t", "wav", "-r", "48000", "-c", "2", "-"],
+                    input=raw_audio,
+                    capture_output=True,
+                    timeout=30
+                )
+                if sox_proc.returncode != 0:
+                    logger.error(f"Speech conversion failed (code {sox_proc.returncode})")
+                    if sox_proc.stderr:
+                        logger.debug(f"Error output: {sox_proc.stderr.decode('utf-8', errors='replace')}")
+                    return False
+
+                play_proc = subprocess.run(
+                    ["aplay", "-D", self.output_device, "-q"],
+                    input=sox_proc.stdout,
+                    capture_output=True,
+                    timeout=30
+                )
+                if play_proc.returncode != 0:
+                    logger.error(f"Speech playback failed (code {play_proc.returncode})")
+                    if play_proc.stderr:
+                        logger.debug(f"Error output: {play_proc.stderr.decode('utf-8', errors='replace')}")
+                    return False
 
             logger.debug("Speech playback completed successfully")
             return True
@@ -237,44 +267,11 @@ sox -t raw -r 22050 -e signed -b 16 -c 1 - {sox_out} | \
         Returns:
             str: Formatted response text
         """
-        templates = {
-            'playing': "Playing {song}",
-            'paused': "Paused",
-            'skipped': "Skipping",
-            'previous': "Going back",
-            'volume_up': "Volume up",
-            'volume_down': "Volume down",
-            'liked': "Added to favorites",
-            'favorites': "Playing favorites",
-            'no_match': "I don't know that song",
-            'error': "Sorry, something went wrong",
-            'sleep_timer': "I'll stop in {minutes} minutes",
-            'stopped': "Stopped",
-            'unknown': "I didn't understand that",
-        }
-
-        # Keep templates minimal, but make critical fallbacks kid-friendly in French
-        # when running in French mode.
-        try:
-            import config
-            language = getattr(config, 'HAILO_STT_LANGUAGE', 'en')
-        except Exception:
-            language = 'en'
-
-        if language == 'fr':
-            templates.update({
-                'no_match': "Désolé, je n'ai pas trouvé ça dans ta bibliothèque",
-                'error': "Oups, j'ai eu un petit souci. Tu peux réessayer ?",
-                'unknown': "Désolé, je n'ai pas compris. Tu peux répéter, s'il te plaît ?",
-            })
-
-        template = templates.get(intent, "Okay")
-
-        try:
-            return template.format(**params)
-        except KeyError as e:
-            logger.warning(f"Missing parameter {e} for template '{intent}'")
-            return template
+        response = self._responses.get(intent, fallback_key="unknown", **params)
+        if response:
+            return response
+        logger.warning(f"Missing response template for '{intent}'")
+        return ""
 
 
 # Convenience function for quick speech

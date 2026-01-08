@@ -1,6 +1,7 @@
 import os
 import unittest
 
+import config
 from modules.command_processor import CommandProcessor
 from modules.hailo_stt import HailoSTT
 from modules.intent_engine import IntentEngine
@@ -85,6 +86,8 @@ class TestOrchestratorE2E(PiSatTestBase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        if config.STT_BACKEND != "hailo":
+            raise unittest.SkipTest("STT_BACKEND is not 'hailo'")
         if os.getenv("PISAT_RUN_HAILO_TESTS", "0") != "1":
             raise unittest.SkipTest("Set PISAT_RUN_HAILO_TESTS=1 to run Hailo hardware tests")
 

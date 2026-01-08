@@ -166,6 +166,8 @@ install() {
     if [ -f "$INF_REQ" ]; then
         log "Installing Hailo example requirements..."
         "$PY" -m pip install -r "$INF_REQ"
+        # Hailo examples pin scipy==1.9.3; restore project requirement.
+        "$PY" -m pip install "scipy>=1.10.0"
     fi
 
     # Verify Hailo Python bindings are importable inside venv
@@ -389,54 +391,11 @@ orchestrator.start()
 "
 }
 
-# Synthetic test - full pipeline (wake word → record → STT → TTS)
-test_synthetic() {
-    check_venv
-    log "Starting synthetic pipeline test..."
-    log "🔔 Wake word → 🎤 Record → 🔊 STT → 💬 TTS"
-    log "Say 'Alexa' to test full pipeline"
-    log "Press Ctrl-C to exit"
-    exec "$PY" scripts/test_synthetic.py "$@"
-}
-
 # Test microphone recording
 test_mic() {
     check_venv
     log "Testing microphone recording with debug playback..."
     "$PY" tests/test_microphone_recording.py
-}
-
-# Test wake word + STT only (user feedback loop)
-test_wake_stt() {
-    check_venv
-    log "Testing wake word → STT (user feedback loop)..."
-    log "Say 'Alexa' then speak your command"
-    log "Press Ctrl-C to exit"
-    exec "$PY" scripts/test_wake_stt.py
-}
-
-# Test wake word → STT with debug audio saving
-test_wake_stt_debug() {
-    check_venv
-    log "Testing wake word → STT (DEBUG MODE - saving audio files)..."
-    log "Audio files will be saved to debug_audio/"
-    log "Say 'Alexa' then speak your command"
-    log "Press Ctrl-C to exit"
-    exec "$PY" scripts/test_wake_stt.py --save-audio
-}
-
-# Test STT → Intent pipeline with French audio samples
-test_stt_intent() {
-    check_venv
-    log "Testing STT → Intent pipeline with French audio samples..."
-    exec "$PY" scripts/test_stt_intent.py "$@"
-}
-
-# Test STT → Intent pipeline (failures only)
-test_stt_intent_failures() {
-    check_venv
-    log "Testing STT → Intent pipeline (failures only)..."
-    exec "$PY" scripts/test_stt_intent.py --failures-only
 }
 
 # Calibrate VAD and analyze audio levels
@@ -445,14 +404,6 @@ calibrate_vad() {
     log "VAD Calibration Tool"
     log "Analyzes audio levels and recommends thresholds"
     exec "$PY" scripts/calibrate_vad.py
-}
-
-# Benchmark STT engines (Native vs Hailo)
-benchmark_stt() {
-    check_venv
-    log "STT Performance Benchmark"
-    log "Comparing Native Whisper vs Hailo acceleration"
-    exec "$PY" scripts/benchmark_stt.py "$@"
 }
 
 # Clean up
@@ -487,13 +438,7 @@ help() {
     echo "  run                       Start the orchestrator"
     echo "  run_debug                 Start the orchestrator in debug mode"
     echo "  run_live                  Start with LIVE DEBUG (wake word + VAD + text)"
-    echo "  test_synthetic            Synthetic test: wake word → record → STT → TTS"
-    echo "  test_wake_stt             Test wake word → STT only (user feedback loop)"
-    echo "  test_wake_stt_debug       Test wake word → STT with audio file saving (DEBUG)"
-    echo "  test_stt_intent           Test STT → Intent pipeline (100 French samples)"
-    echo "  test_stt_intent_failures  Test STT → Intent (show failures only)"
     echo "  calibrate_vad             Calibrate VAD and analyze audio levels"
-    echo "  benchmark_stt [--lang fr|en] [--audio-dir DIR]   Benchmark STT (default: Hailo+FR; use --quick for fast test)"
     echo "  listen                    Run wake word listener only (mic)"
     echo "  test_mic                  Test microphone recording with debug playback"
     echo "  logs_clear                Delete all *.log files in the repo"
@@ -515,7 +460,7 @@ help() {
     echo "  sudo $0 daemon install           Install as system service"
     echo "  sudo systemctl status pi-sat     Check daemon status"
     echo "  sudo journalctl -u pi-sat -f     View live logs"
-    echo "  See DAEMON.md for complete guide"
+    echo "  See DEPLOYMENT.md for complete guide"
 }
 
 # Main command dispatcher
@@ -546,28 +491,8 @@ case "${1:-help}" in
     "run_live")
         run_live
         ;;
-    "test_synthetic")
-        test_synthetic "$@"
-        ;;
-    "test_wake_stt")
-        test_wake_stt
-        ;;
-    "test_wake_stt_debug")
-        test_wake_stt_debug
-        ;;
-    "test_stt_intent")
-        shift
-        test_stt_intent "$@"
-        ;;
-    "test_stt_intent_failures")
-        test_stt_intent_failures
-        ;;
     "calibrate_vad")
         calibrate_vad
-        ;;
-    "benchmark_stt")
-        shift
-        benchmark_stt "$@"
         ;;
     "listen")
         listen

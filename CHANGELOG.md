@@ -5,8 +5,6 @@ All notable changes to Pi-Sat are documented here.
 ## [Unreleased]
 
 ### In Progress
-- Factory integration for new modules (time_scheduler, morning_alarm, activity_tracker)
-- Comprehensive tests for kid safety features
 - Mic mute detector implementation
 - End-to-end hardware testing on RPi 5
 
@@ -42,7 +40,7 @@ All notable changes to Pi-Sat are documented here.
 - **Separate pattern dictionaries** - INTENT_PATTERNS_EN and INTENT_PATTERNS_FR
 - **Language-aware parameter extraction** - Handles "7h" (French) vs "7am" (English)
 - **400+ trigger phrases** - 200+ per language across 22 intents
-- **Auto-detection from config** - Seamless language switching via `HAILO_STT_LANGUAGE`
+- **Auto-detection from config** - Seamless language switching via `LANGUAGE`
 
 ### Added - Kid Safety Features
 - **Bedtime enforcement** - Quiet hours with warnings (`BEDTIME_START`, `BEDTIME_END`)

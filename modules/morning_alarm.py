@@ -1,422 +1,344 @@
 """
-Morning Alarm - Wake-up with Music & Gentle Volume Increase
+Morning Alarm Module
 
-Manages morning alarms with gentle wake-up feature.
-Gradually increases volume over configured duration for pleasant wake-up.
-
-Key Features:
-- Set alarms with wake-up time and music
-- Gentle volume fade-in (e.g., 10% → 50% over 5 minutes)
-- Multiple alarms support
-- Recurring alarms (daily, weekdays, weekends)
-- Cancel/snooze alarms
-- Voice commands: "Wake me up at 7 AM with Frozen"
-
-Example Usage:
-    alarm = MorningAlarm(mpd_controller)
-
-    # Set alarm
-    alarm.set_alarm(
-        wake_time="07:00",
-        music_query="Frozen",
-        gentle_wakeup=True
-    )
-
-    # Check and trigger alarms (called by main loop)
-    if alarm.check_and_trigger():
-        print("Alarm triggered!")
+Gentle wake-up with music and volume fade-in.
+Follows KISS principles - simple, focused implementation.
 """
 
-import logging
-from datetime import datetime, time, timedelta
-from typing import Optional, List, Dict, Tuple
-from dataclasses import dataclass
 import threading
-import time as time_module
+import time
+from datetime import datetime, time as dt_time, timedelta
+from typing import Callable, Optional, List, Dict, Any
+from enum import Enum
+from modules.logging_utils import setup_logger
 
-import config
-
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
-@dataclass
+class AlarmRecurrence(Enum):
+    """Alarm recurrence patterns"""
+    ONCE = "once"
+    DAILY = "daily"
+    WEEKDAYS = "weekdays"  # Monday-Friday
+    WEEKENDS = "weekends"  # Saturday-Sunday
+
+
 class Alarm:
-    """Alarm configuration"""
-    id: int
-    wake_time: time
-    music_query: Optional[str]
-    gentle_wakeup: bool
-    enabled: bool
-    recurring: str  # 'once', 'daily', 'weekdays', 'weekends'
-    next_trigger: datetime
+    """Single alarm configuration"""
 
-    def __repr__(self):
-        time_str = self.wake_time.strftime('%I:%M %p')
-        music_str = f" with {self.music_query}" if self.music_query else ""
-        return f"Alarm({time_str}{music_str}, {self.recurring})"
+    def __init__(
+        self,
+        alarm_time: str,
+        query: Optional[str] = None,
+        recurrence: AlarmRecurrence = AlarmRecurrence.ONCE,
+        enabled: bool = True,
+        alarm_id: Optional[str] = None
+    ):
+        """
+        Create an alarm.
+
+        Args:
+            alarm_time: Wake time in HH:MM format
+            query: Music query to play (None for default playlist)
+            recurrence: Recurrence pattern
+            enabled: Alarm is active
+            alarm_id: Unique identifier
+        """
+        self.time = self._parse_time(alarm_time)
+        self.query = query
+        self.recurrence = recurrence
+        self.enabled = enabled
+        self.id = alarm_id or self._generate_id()
+        self._last_triggered: Optional[datetime] = None
+
+    def should_trigger(self, now: datetime) -> bool:
+        """Check if alarm should trigger at given time"""
+        if not self.enabled:
+            return False
+
+        # Check if already triggered today
+        if self._last_triggered:
+            if self._last_triggered.date() == now.date():
+                return False
+
+        # Check time match (within 1 minute window)
+        now_time = now.time()
+        alarm_time = self.time
+        time_match = (
+            alarm_time.hour == now_time.hour and
+            alarm_time.minute == now_time.minute
+        )
+
+        if not time_match:
+            return False
+
+        # Check recurrence pattern
+        weekday = now.weekday()  # 0=Monday, 6=Sunday
+
+        if self.recurrence == AlarmRecurrence.ONCE:
+            return True
+        elif self.recurrence == AlarmRecurrence.DAILY:
+            return True
+        elif self.recurrence == AlarmRecurrence.WEEKDAYS:
+            return weekday < 5  # Monday-Friday
+        elif self.recurrence == AlarmRecurrence.WEEKENDS:
+            return weekday >= 5  # Saturday-Sunday
+
+        return False
+
+    def mark_triggered(self):
+        """Mark alarm as triggered"""
+        self._last_triggered = datetime.now()
+        if self.recurrence == AlarmRecurrence.ONCE:
+            self.enabled = False
+            logger.info(f"Alarm {self.id} disabled (one-time alarm)")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            'id': self.id,
+            'time': self.time.strftime('%H:%M'),
+            'query': self.query,
+            'recurrence': self.recurrence.value,
+            'enabled': self.enabled
+        }
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> 'Alarm':
+        """Create alarm from dictionary"""
+        return Alarm(
+            alarm_time=data['time'],
+            query=data.get('query'),
+            recurrence=AlarmRecurrence(data.get('recurrence', 'once')),
+            enabled=data.get('enabled', True),
+            alarm_id=data.get('id')
+        )
+
+    def _parse_time(self, time_str: str) -> dt_time:
+        """Parse HH:MM time string"""
+        try:
+            hour, minute = map(int, time_str.split(':'))
+            return dt_time(hour=hour, minute=minute)
+        except Exception as e:
+            logger.error(f"Invalid time format '{time_str}': {e}. Using 07:00.")
+            return dt_time(hour=7, minute=0)
+
+    def _generate_id(self) -> str:
+        """Generate unique alarm ID"""
+        return f"alarm_{int(time.time() * 1000)}"
 
 
 class MorningAlarm:
     """
-    Morning alarm system with gentle wake-up support.
+    Gentle morning alarm with music fade-in.
 
-    Manages multiple alarms with gradual volume increase for pleasant waking.
+    Features:
+    - Multiple alarms with different recurrence patterns
+    - Volume fade-in (10% → 50% over 5 minutes)
+    - Plays requested music or default shuffle
+    - Thread-safe alarm management
     """
 
     def __init__(
         self,
-        mpd_controller=None,
-        gentle_wakeup_duration: int = None,
-        start_volume: int = None,
-        end_volume: int = None,
+        play_callback: Callable[[Optional[str]], bool] = None,
+        get_volume_callback: Callable[[], int] = None,
+        set_volume_callback: Callable[[int], None] = None,
+        fade_duration: int = 300,  # 5 minutes
+        start_volume: int = 10,
+        end_volume: int = 50,
         debug: bool = False
     ):
         """
-        Initialize Morning Alarm.
+        Initialize morning alarm system.
 
         Args:
-            mpd_controller: MPD controller instance for playback
-            gentle_wakeup_duration: Seconds for volume fade-in (default: from config)
-            start_volume: Starting volume percentage (default: from config)
-            end_volume: Ending volume percentage (default: from config)
+            play_callback: Function to play music (query) -> success
+            get_volume_callback: Function to get current volume (0-100)
+            set_volume_callback: Function to set volume (0-100)
+            fade_duration: Fade-in duration in seconds (default 300s = 5 min)
+            start_volume: Starting volume for fade-in (default 10%)
+            end_volume: Ending volume for fade-in (default 50%)
             debug: Enable debug logging
         """
-        self.mpd_controller = mpd_controller
-        self.gentle_wakeup_duration = gentle_wakeup_duration or config.ALARM_GENTLE_WAKEUP_DURATION
-        self.start_volume = start_volume or config.ALARM_START_VOLUME
-        self.end_volume = end_volume or config.ALARM_END_VOLUME
-        self.debug = debug
+        self._play = play_callback
+        self._get_volume = get_volume_callback
+        self._set_volume = set_volume_callback
+        self._fade_duration = fade_duration
+        self._start_volume = start_volume
+        self._end_volume = end_volume
 
         # Alarm storage
         self._alarms: List[Alarm] = []
-        self._next_alarm_id = 1
-        self._alarms_lock = threading.Lock()
+        self._lock = threading.Lock()
 
-        # Active alarm state
-        self._active_alarm_thread = None
-        self._active_alarm_cancel = threading.Event()
+        # Monitor thread
+        self._monitor_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
 
+        self.debug = debug
         if debug:
+            import logging
             logger.setLevel(logging.DEBUG)
 
-        logger.info(
-            f"Morning Alarm initialized: "
-            f"gentle_wakeup={self.gentle_wakeup_duration}s, "
-            f"volume={self.start_volume}→{self.end_volume}%"
-        )
-
-    def set_alarm(
-        self,
-        wake_time: str,
-        music_query: Optional[str] = None,
-        gentle_wakeup: bool = True,
-        recurring: str = 'once'
-    ) -> Tuple[bool, str]:
+    def add_alarm(self, alarm: Alarm) -> bool:
         """
-        Set a new alarm.
-
-        Args:
-            wake_time: Wake time in HH:MM format (24-hour)
-            music_query: Music to play (None for favorites or current playlist)
-            gentle_wakeup: Enable gentle volume fade-in
-            recurring: 'once', 'daily', 'weekdays', 'weekends'
+        Add new alarm.
 
         Returns:
-            Tuple of (success, message)
+            True if alarm was added successfully
         """
-        try:
-            # Parse wake time
-            alarm_time = self._parse_time(wake_time)
+        with self._lock:
+            # Check for duplicate time (same time, same recurrence)
+            for existing in self._alarms:
+                if (existing.time == alarm.time and
+                    existing.recurrence == alarm.recurrence and
+                    existing.enabled):
+                    logger.warning(
+                        f"Alarm already exists at {alarm.time.strftime('%H:%M')} "
+                        f"({alarm.recurrence.value})"
+                    )
+                    return False
 
-            # Calculate next trigger
-            next_trigger = self._calculate_next_trigger(alarm_time, recurring)
+            self._alarms.append(alarm)
+            logger.info(
+                f"Added alarm: {alarm.time.strftime('%H:%M')} "
+                f"({alarm.recurrence.value}), query='{alarm.query}'"
+            )
+            return True
 
-            with self._alarms_lock:
-                # Create new alarm
-                alarm = Alarm(
-                    id=self._next_alarm_id,
-                    wake_time=alarm_time,
-                    music_query=music_query,
-                    gentle_wakeup=gentle_wakeup,
-                    enabled=True,
-                    recurring=recurring,
-                    next_trigger=next_trigger
-                )
-
-                self._alarms.append(alarm)
-                self._next_alarm_id += 1
-
-            time_str = alarm_time.strftime('%I:%M %p')
-            music_str = f" with {music_query}" if music_query else ""
-
-            logger.info(f"Alarm set: {time_str}{music_str} ({recurring})")
-            return (True, f"Alarm set for {time_str}{music_str}")
-
-        except Exception as e:
-            logger.error(f"Failed to set alarm: {e}")
-            return (False, f"I couldn't set the alarm: {e}")
-
-    def cancel_alarm(self, alarm_id: Optional[int] = None) -> Tuple[bool, str]:
+    def remove_alarm(self, alarm_id: str) -> bool:
         """
-        Cancel alarm(s).
-
-        Args:
-            alarm_id: Specific alarm ID to cancel (None = cancel all)
+        Remove alarm by ID.
 
         Returns:
-            Tuple of (success, message)
+            True if alarm was removed
         """
-        with self._alarms_lock:
-            if alarm_id is None:
-                # Cancel all alarms
-                count = len(self._alarms)
-                self._alarms.clear()
-                return (True, f"Cancelled {count} alarm{'s' if count != 1 else ''}")
-            else:
-                # Cancel specific alarm
-                self._alarms = [a for a in self._alarms if a.id != alarm_id]
-                return (True, f"Alarm cancelled")
-
-    def get_alarms(self) -> List[Alarm]:
-        """
-        Get list of all alarms.
-
-        Returns:
-            List of Alarm objects
-        """
-        with self._alarms_lock:
-            return self._alarms.copy()
-
-    def get_next_alarm(self) -> Optional[Alarm]:
-        """
-        Get next alarm that will trigger.
-
-        Returns:
-            Next Alarm object or None
-        """
-        with self._alarms_lock:
-            if not self._alarms:
-                return None
-
-            # Find alarm with earliest next_trigger
-            enabled_alarms = [a for a in self._alarms if a.enabled]
-            if not enabled_alarms:
-                return None
-
-            return min(enabled_alarms, key=lambda a: a.next_trigger)
-
-    def check_and_trigger(self) -> bool:
-        """
-        Check if any alarms should trigger and start them.
-
-        Should be called regularly by main loop (e.g., every minute).
-
-        Returns:
-            True if an alarm was triggered
-        """
-        now = datetime.now()
-
-        with self._alarms_lock:
-            for alarm in self._alarms:
-                if not alarm.enabled:
-                    continue
-
-                # Check if alarm should trigger
-                if now >= alarm.next_trigger:
-                    logger.info(f"Triggering alarm: {alarm}")
-
-                    # Trigger alarm in background thread
-                    self._trigger_alarm(alarm)
-
-                    # Update next trigger for recurring alarms
-                    if alarm.recurring == 'once':
-                        alarm.enabled = False
-                    else:
-                        alarm.next_trigger = self._calculate_next_trigger(
-                            alarm.wake_time,
-                            alarm.recurring
-                        )
-
+        with self._lock:
+            for i, alarm in enumerate(self._alarms):
+                if alarm.id == alarm_id:
+                    removed = self._alarms.pop(i)
+                    logger.info(f"Removed alarm: {removed.time.strftime('%H:%M')}")
                     return True
 
-        return False
+            logger.warning(f"Alarm not found: {alarm_id}")
+            return False
+
+    def get_alarms(self) -> List[Alarm]:
+        """Get all alarms"""
+        with self._lock:
+            return list(self._alarms)
+
+    def start_monitoring(self):
+        """Start alarm monitoring thread"""
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            logger.warning("Alarm monitoring already running")
+            return
+
+        self._stop_event.clear()
+        self._monitor_thread = threading.Thread(
+            target=self._monitor_loop,
+            daemon=True,
+            name="AlarmMonitor"
+        )
+        self._monitor_thread.start()
+        logger.info("Alarm monitoring started")
+
+    def stop_monitoring(self):
+        """Stop alarm monitoring thread"""
+        self._stop_event.set()
+        if self._monitor_thread:
+            self._monitor_thread.join(timeout=2.0)
+        logger.info("Alarm monitoring stopped")
+
+    def _monitor_loop(self):
+        """Alarm monitoring loop (runs in background thread)"""
+        while not self._stop_event.is_set():
+            try:
+                self._check_alarms()
+            except Exception as e:
+                logger.error(f"Alarm monitor error: {e}")
+
+            # Check every 30 seconds (alarms accurate to 1 minute)
+            self._stop_event.wait(timeout=30)
+
+    def _check_alarms(self):
+        """Check if any alarms should trigger"""
+        now = datetime.now()
+
+        with self._lock:
+            for alarm in self._alarms:
+                if alarm.should_trigger(now):
+                    logger.info(
+                        f"⏰ Alarm triggered: {alarm.time.strftime('%H:%M')} "
+                        f"({alarm.recurrence.value})"
+                    )
+                    alarm.mark_triggered()
+
+                    # Trigger alarm in separate thread (non-blocking)
+                    threading.Thread(
+                        target=self._trigger_alarm,
+                        args=(alarm,),
+                        daemon=True,
+                        name=f"AlarmTrigger-{alarm.id}"
+                    ).start()
 
     def _trigger_alarm(self, alarm: Alarm):
-        """
-        Trigger alarm playback.
+        """Execute alarm (fade-in music)"""
+        try:
+            logger.info(f"Starting gentle wake-up: query='{alarm.query}'")
 
-        Args:
-            alarm: Alarm to trigger
-        """
-        # Cancel any active alarm
-        if self._active_alarm_thread and self._active_alarm_thread.is_alive():
-            self._active_alarm_cancel.set()
-            self._active_alarm_thread.join(timeout=1)
+            # Save current volume
+            original_volume = self._get_volume() if self._get_volume else 50
 
-        self._active_alarm_cancel.clear()
+            # Set start volume
+            if self._set_volume:
+                self._set_volume(self._start_volume)
 
-        def alarm_worker():
-            """Worker thread for alarm playback"""
-            try:
-                if not self.mpd_controller:
-                    logger.error("No MPD controller available")
+            # Start music playback
+            if self._play:
+                success = self._play(alarm.query)
+                if not success:
+                    logger.error("Failed to start alarm music")
+                    # Restore original volume
+                    if self._set_volume:
+                        self._set_volume(original_volume)
                     return
 
-                # Start playing music
-                if alarm.music_query:
-                    success, msg, _confidence = self.mpd_controller.play(alarm.music_query)
-                    if not success:
-                        logger.warning(f"Alarm music not found, playing favorites")
-                        self.mpd_controller.play_favorites()
-                else:
-                    # Play favorites or resume current
-                    self.mpd_controller.play()
+            # Fade in volume
+            steps = self._fade_duration
+            volume_range = self._end_volume - self._start_volume
 
-                # Gentle wake-up: gradual volume increase
-                if alarm.gentle_wakeup:
-                    logger.info(
-                        f"Starting gentle wake-up: "
-                        f"{self.start_volume}% → {self.end_volume}% "
-                        f"over {self.gentle_wakeup_duration}s"
+            for i in range(steps):
+                if self._stop_event.is_set():
+                    logger.info("Alarm fade-in cancelled")
+                    break
+
+                fade_volume = self._start_volume + int(volume_range * i / steps)
+                if self._set_volume:
+                    self._set_volume(fade_volume)
+
+                if self.debug and i % 30 == 0:  # Log every 30 seconds
+                    logger.debug(
+                        f"Fade-in progress: {i}/{steps}s, volume: {fade_volume}%"
                     )
 
-                    steps = 30  # Number of volume adjustment steps
-                    sleep_time = self.gentle_wakeup_duration / steps
-                    volume_step = (self.end_volume - self.start_volume) / steps
+                time.sleep(1)
 
-                    # Set initial volume
-                    with self.mpd_controller._ensure_connection():
-                        self.mpd_controller.client.setvol(self.start_volume)
+            # Ensure final volume is reached
+            if self._set_volume and not self._stop_event.is_set():
+                self._set_volume(self._end_volume)
 
-                    # Gradually increase volume
-                    for i in range(steps):
-                        if self._active_alarm_cancel.is_set():
-                            logger.info("Alarm cancelled during wake-up")
-                            return
+            logger.info(
+                f"Gentle wake-up completed: volume {self._start_volume}% → {self._end_volume}%"
+            )
 
-                        current_volume = int(self.start_volume + (volume_step * i))
-                        with self.mpd_controller._ensure_connection():
-                            self.mpd_controller.client.setvol(current_volume)
+        except Exception as e:
+            logger.error(f"Alarm trigger error: {e}")
 
-                        time_module.sleep(sleep_time)
-
-                    # Set final volume
-                    with self.mpd_controller._ensure_connection():
-                        self.mpd_controller.client.setvol(self.end_volume)
-
-                else:
-                    # No gentle wake-up, set volume immediately
-                    with self.mpd_controller._ensure_connection():
-                        self.mpd_controller.client.setvol(self.end_volume)
-
-                logger.info("Alarm wake-up complete")
-
-            except Exception as e:
-                logger.error(f"Alarm playback error: {e}")
-
-        # Start alarm thread
-        self._active_alarm_thread = threading.Thread(
-            target=alarm_worker,
-            daemon=True
-        )
-        self._active_alarm_thread.start()
-
-    def _parse_time(self, time_str: str) -> time:
-        """
-        Parse time string in HH:MM format.
-
-        Args:
-            time_str: Time in HH:MM format (24-hour)
-
-        Returns:
-            datetime.time object
-        """
-        hour, minute = map(int, time_str.split(':'))
-        return time(hour=hour, minute=minute)
-
-    def _calculate_next_trigger(self, alarm_time: time, recurring: str) -> datetime:
-        """
-        Calculate next trigger datetime for alarm.
-
-        Args:
-            alarm_time: Time of day for alarm
-            recurring: Recurrence pattern
-
-        Returns:
-            Next datetime when alarm should trigger
-        """
-        now = datetime.now()
-        today = now.date()
-
-        # Start with today at alarm time
-        next_trigger = datetime.combine(today, alarm_time)
-
-        # If alarm time already passed today, start from tomorrow
-        if next_trigger <= now:
-            next_trigger += timedelta(days=1)
-
-        # Handle recurring patterns
-        if recurring == 'weekdays':
-            # Find next weekday (Monday=0, Sunday=6)
-            while next_trigger.weekday() >= 5:  # Saturday=5, Sunday=6
-                next_trigger += timedelta(days=1)
-
-        elif recurring == 'weekends':
-            # Find next weekend day
-            while next_trigger.weekday() < 5:  # Mon-Fri
-                next_trigger += timedelta(days=1)
-
-        return next_trigger
-
-
-def main():
-    """Test Morning Alarm"""
-    import logging
-    logging.basicConfig(level=logging.INFO)
-
-    print("Morning Alarm Test\n")
-    print("=" * 60)
-
-    # Test without MPD (dry run)
-    alarm_manager = MorningAlarm(debug=True)
-
-    # Set some test alarms
-    print("\n1. Setting alarms:")
-
-    success, msg = alarm_manager.set_alarm(
-        wake_time="07:00",
-        music_query="Frozen",
-        recurring='daily'
-    )
-    print(f"   {msg}")
-
-    success, msg = alarm_manager.set_alarm(
-        wake_time="08:30",
-        music_query="Beatles",
-        recurring='weekdays'
-    )
-    print(f"   {msg}")
-
-    # Get all alarms
-    print("\n2. All alarms:")
-    alarms = alarm_manager.get_alarms()
-    for alarm in alarms:
-        next_str = alarm.next_trigger.strftime('%Y-%m-%d %I:%M %p')
-        print(f"   {alarm} → Next: {next_str}")
-
-    # Get next alarm
-    print("\n3. Next alarm:")
-    next_alarm = alarm_manager.get_next_alarm()
-    if next_alarm:
-        time_str = next_alarm.wake_time.strftime('%I:%M %p')
-        next_str = next_alarm.next_trigger.strftime('%Y-%m-%d %I:%M %p')
-        print(f"   {time_str} → {next_str}")
-
-    # Cancel all
-    print("\n4. Cancelling alarms:")
-    success, msg = alarm_manager.cancel_alarm()
-    print(f"   {msg}")
-
-
-if __name__ == '__main__':
-    main()
+    def __del__(self):
+        """Cleanup on destruction"""
+        try:
+            self.stop_monitoring()
+        except Exception:
+            pass

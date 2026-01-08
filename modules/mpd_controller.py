@@ -23,7 +23,6 @@ MPD software volume is set to 100% at startup and never changed.
 import os
 import time
 import logging
-import threading
 from typing import Optional, List, Dict, Tuple
 from contextlib import contextmanager
 
@@ -37,6 +36,9 @@ except ImportError:
 import config
 
 from modules.music_library import MusicLibrary
+from modules.response_library import ResponseLibrary
+from modules.mpd_connection import MPDConnection
+from modules.sleep_timer import SleepTimer
 
 # Logging
 logger = logging.getLogger(__name__)
@@ -53,58 +55,82 @@ class MPDController:
         port: int = None,
         music_library: str = None,  # DEPRECATED: Use music_library_instance instead
         music_library_instance: 'MusicLibrary' = None,  # NEW: Inject MusicLibrary
+        mpd_connection: 'MPDConnection' = None,  # NEW: Inject MPDConnection
+        sleep_timer: 'SleepTimer' = None,  # NEW: Inject SleepTimer
         debug: bool = False
     ):
         """
         Initialize MPD Controller.
 
         Args:
-            host: MPD server host (default: from config)
-            port: MPD server port (default: from config)
+            host: MPD server host (default: from config) - only used if mpd_connection not provided
+            port: MPD server port (default: from config) - only used if mpd_connection not provided
             music_library: Music library path (default: from config) - DEPRECATED, use music_library_instance
             music_library_instance: Pre-configured MusicLibrary instance (recommended for dependency injection)
+            mpd_connection: Pre-configured MPDConnection instance (recommended for dependency injection)
+            sleep_timer: Pre-configured SleepTimer instance (recommended for dependency injection)
             debug: Enable debug logging
 
         Note:
-            Prefer using music_library_instance for dependency injection (better testability).
-            If not provided, MusicLibrary will be created internally (backward compatible).
+            Prefer using dependency injection (music_library_instance, mpd_connection, sleep_timer)
+            for better testability. If not provided, components will be created internally (backward compatible).
         """
-        self.host = host or config.MPD_HOST
-        self.port = port or config.MPD_PORT
-        self.music_library = music_library or config.MUSIC_LIBRARY
         self.debug = debug
 
-        if MPDClient is None:
-            raise RuntimeError("python-mpd2 not installed. Install with: pip install python-mpd2")
+        # Use injected MPDConnection or create internally (backward compatible)
+        if mpd_connection is not None:
+            self._mpd_connection = mpd_connection
+        else:
+            # Fallback: create internally
+            host = host or config.MPD_HOST
+            port = port or config.MPD_PORT
+            self._mpd_connection = MPDConnection(
+                host=host,
+                port=port,
+                debug=debug
+            )
 
-        self.client = MPDClient()
-        self.client.timeout = 10  # 10 second timeout
-        self.client.idletimeout = None
-
-        self._connected = False
+        # Expose properties for backward compatibility
+        self.host = self._mpd_connection.host
+        self.port = self._mpd_connection.port
+        self.client = self._mpd_connection.client  # Direct access to client
 
         # Use injected MusicLibrary or create internally (backward compatible)
         if music_library_instance is not None:
             self._music_library = music_library_instance
         else:
             # Fallback: create internally
+            music_library = music_library or config.MUSIC_LIBRARY
             self._music_library = MusicLibrary(
-                library_path=self.music_library,
+                library_path=music_library,
                 fuzzy_threshold=config.FUZZY_MATCH_THRESHOLD,
                 phonetic_enabled=True,
                 phonetic_weight=config.PHONETIC_WEIGHT,
                 debug=debug
             )
 
-        # Sleep timer state
-        self._sleep_timer_thread = None
-        self._sleep_timer_cancel = threading.Event()
-        self._sleep_timer_lock = threading.Lock()  # Thread-safe sleep timer management
+        # Use injected SleepTimer or create internally (backward compatible)
+        if sleep_timer is not None:
+            self._sleep_timer = sleep_timer
+        else:
+            # Fallback: create internally
+            # We'll set callbacks after initialization
+            self._sleep_timer = SleepTimer(
+                get_volume_callback=None,  # Set later
+                set_volume_callback=None,  # Set later
+                stop_callback=None,  # Set later
+                debug=debug
+            )
+
+        self._responses = ResponseLibrary()
 
         if debug:
             logger.setLevel(logging.DEBUG)
 
         logger.info(f"MPD Controller initialized ({self.host}:{self.port})")
+
+    def _response(self, key: str, **params) -> str:
+        return self._responses.get(key, fallback_key="unknown", **params) or ""
 
     def connect(self) -> bool:
         """
@@ -113,62 +139,43 @@ class MPDController:
         Returns:
             True if connected successfully
         """
-        try:
-            if not self._connected:
+        # Delegate connection to MPDConnection
+        success = self._mpd_connection.connect()
+
+        if success:
+            # Apply default playback modes (does not alter the current song/volume)
+            self.set_shuffle(bool(getattr(config, "DEFAULT_SHUFFLE_MODE", False)))
+            default_repeat = getattr(config, "DEFAULT_REPEAT_MODE", None)
+            if default_repeat:
+                self.set_repeat(default_repeat)
+
+            # Update MPD database to pick up new files, then load catalog
+            try:
+                self.client.update()
+            except Exception as e:
+                logger.debug(f"MPD database update failed (non-critical): {e}")
+
+            if self._music_library.is_empty():
                 try:
-                    self.client.connect(self.host, self.port)
-                except (MPDConnectionError, ConnectionError) as conn_err:
-                    # Handle "Already connected" case (client connection persisted despite flag reset)
-                    if "Already connected" in str(conn_err):
-                        logger.debug("MPD client already connected, reusing connection")
-                    else:
-                        raise  # Re-raise other connection errors
+                    count = self._music_library.load_from_mpd(self.client)
+                    logger.debug(f"Loaded {count} songs from MPD database")
+                except Exception as e:
+                    logger.warning(f"Failed to load music catalog: {e}")
 
-                self._connected = True
-                logger.info(f"Connected to MPD at {self.host}:{self.port}")
-                # Apply default playback modes (does not alter the current song/volume)
-                self.set_shuffle(bool(getattr(config, "DEFAULT_SHUFFLE_MODE", False)))
-                default_repeat = getattr(config, "DEFAULT_REPEAT_MODE", None)
-                if default_repeat:
-                    self.set_repeat(default_repeat)
-
-                # Update MPD database to pick up new files, then load catalog
+            # Ensure we have a real queue for continuous shuffle mode.
+            # Important: only appends when the queue is empty/tiny, so restarts won't disrupt playback.
+            if getattr(config, "DEFAULT_SHUFFLE_MODE", False):
                 try:
-                    self.client.update()
-                except Exception:
-                    pass  # Update is best-effort
+                    self._ensure_queue_seeded(min_songs=2)
+                except Exception as e:
+                    logger.warning(f"Failed to seed shuffle queue: {e}")
 
-                if self._music_library.is_empty():
-                    try:
-                        count = self._music_library.load_from_mpd(self.client)
-                        logger.debug(f"Loaded {count} songs from MPD database")
-                    except Exception as e:
-                        logger.warning(f"Failed to load music catalog: {e}")
-
-                # Ensure we have a real queue for continuous shuffle mode.
-                # Important: only appends when the queue is empty/tiny, so restarts won't disrupt playback.
-                if getattr(config, "DEFAULT_SHUFFLE_MODE", False):
-                    try:
-                        self._ensure_queue_seeded(min_songs=2)
-                    except Exception as e:
-                        logger.warning(f"Failed to seed shuffle queue: {e}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to connect to MPD: {e}")
-            self._connected = False
-            return False
+        return success
 
     def disconnect(self):
         """Disconnect from MPD server"""
-        try:
-            if self._connected:
-                self.client.close()
-                self.client.disconnect()
-                self._connected = False
-                logger.info("Disconnected from MPD")
-        except Exception as e:
-            logger.warning(f"Error disconnecting from MPD: {e}")
+        # Delegate to MPDConnection
+        self._mpd_connection.disconnect()
 
     @contextmanager
     def _ensure_connection(self):
@@ -177,17 +184,12 @@ class MPDController:
 
         Automatically reconnects if connection lost.
         """
-        if not self._connected:
+        # Delegate to MPDConnection, but call our connect() to handle MPD setup logic
+        if not self._mpd_connection.is_connected:
             self.connect()
-        try:
+
+        with self._mpd_connection.ensure_connection():
             yield
-        except (MPDConnectionError, ConnectionError, OSError) as e:
-            # Only log if we haven't already started reconnecting (avoid double logging)
-            if self._connected:
-                logger.warning(f"MPD connection lost: {e}. Reconnecting...")
-                self._connected = False
-                self.connect()
-            raise  # Let caller retry if needed
 
     def _ensure_queue_seeded(self, min_songs: int = 2) -> bool:
         """
@@ -224,8 +226,8 @@ class MPDController:
                     file_path = item.get('file')
                     if file_path:
                         existing_files.add(file_path)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to get existing playlist (will add all songs): {e}")
 
         songs_to_add = [p for p in all_songs if p not in existing_files]
         if not songs_to_add:
@@ -328,7 +330,7 @@ class MPDController:
 
                 self.client.play()
                 status = self.get_status()
-                return (True, f"Playing {status['song']}", None)
+                return (True, self._response("playing_song", song=status.get('song', '')), None)
 
             # Check if query is an exact file path (from validator) or a search query
             # File paths end with .mp3 and exist in the catalog
@@ -344,7 +346,7 @@ class MPDController:
 
                 if not search_result:
                     # Only happens if catalog is completely empty
-                    return (False, f"Music library is empty", 0.0)
+                    return (False, self._response("empty_library"), 0.0)
 
                 matched_file, confidence = search_result
                 logger.info(f"Song detection answer: '{matched_file}' ({confidence:.2%})")
@@ -366,7 +368,7 @@ class MPDController:
 
             if song_id is None:
                 logger.error("Failed to queue requested song in MPD")
-                return (False, "Could not play that song", confidence)
+                return (False, self._response("error"), confidence)
 
             self.client.playid(song_id)
 
@@ -374,7 +376,7 @@ class MPDController:
             song_title = os.path.splitext(os.path.basename(matched_file))[0]
             logger.info(f"🎵 Now playing: {song_title}")
             logger.debug(f"   File: {matched_file} (confidence: {confidence:.2%})")
-            return (True, f"Playing {query}", confidence)
+            return (True, self._response("playing_song", song=song_title or query), confidence)
 
     def pause(self) -> Tuple[bool, str]:
         """
@@ -392,10 +394,10 @@ class MPDController:
                         self.client.pause(1)
                         song = status.get('song', 'unknown')
                         logger.info(f"⏸️  Paused: {song}")
-                        return (True, f"Paused: {song}")
+                        return (True, self._response("paused"))
                     else:
                         logger.info("⏸️  Nothing playing, pause ignored")
-                        return (True, "Nothing to pause")
+                        return (True, self._response("nothing_to_pause"))
             except (MPDConnectionError, ConnectionError, OSError) as e:
                 if attempt < max_retries - 1:
                     logger.debug(f"⏸️  Pause connection error (retry {attempt+1}/{max_retries}): {e}")
@@ -404,10 +406,10 @@ class MPDController:
                     continue
                 else:
                     logger.warning(f"⏸️  Pause failed after {max_retries} retries (continuing anyway): {e}")
-                    return (True, "Paused")  # Return success anyway - pause is best-effort
+                    return (True, self._response("paused"))  # Return success anyway - pause is best-effort
             except Exception as e:
                 logger.warning(f"⏸️  Pause failed (continuing anyway): {e}")
-                return (True, "Paused")  # Return success anyway - pause is best-effort
+                return (True, self._response("paused"))  # Return success anyway - pause is best-effort
 
     def resume(self) -> Tuple[bool, str]:
         """
@@ -423,13 +425,13 @@ class MPDController:
                     self.client.pause(0)
                     song = status.get('song', 'music')
                     logger.info(f"▶️  Resumed: {song}")
-                    return (True, f"Resuming {song}")
+                    return (True, self._response("resuming"))
                 else:
                     logger.debug("Nothing paused, resume ignored")
-                    return (True, "Nothing to resume")
+                    return (True, self._response("nothing_to_resume"))
         except Exception as e:
             logger.debug(f"Resume failed (not critical): {e}")
-            return (True, "Resumed")  # Return success anyway - resume is best-effort
+            return (True, self._response("resuming"))  # Return success anyway - resume is best-effort
 
     def stop(self) -> Tuple[bool, str]:
         """
@@ -441,7 +443,7 @@ class MPDController:
         with self._ensure_connection():
             self.client.stop()
             logger.info("⏹️  Playback stopped")
-            return (True, "Stopped")
+            return (True, self._response("stopped"))
 
     def next(self) -> Tuple[bool, str]:
         """
@@ -486,7 +488,7 @@ class MPDController:
                     self.client.next()
             except Exception as e:
                 logger.error(f"MPD next() failed: {e}")
-                return (False, f"Could not skip to next: {e}")
+                return (False, self._response("error"))
 
             # Wait a moment for MPD to process
             time.sleep(0.1)
@@ -506,7 +508,7 @@ class MPDController:
                 song_name = 'Unknown'
 
             logger.info(f"🎵 Now playing: {song_name}")
-            return (True, f"Next: {song_name}")
+            return (True, self._response("next_song"))
 
     def previous(self) -> Tuple[bool, str]:
         """
@@ -530,20 +532,20 @@ class MPDController:
                     song_name = current.get('title') or current.get('file', 'Unknown')
                     if song_name == 'Unknown' and 'file' in current:
                         song_name = os.path.splitext(os.path.basename(current['file']))[0]
-                    return (True, f"Playing: {song_name}")
+                    return (True, self._response("playing_song", song=song_name))
                 except Exception as e:
                     logger.error(f"MPD previous() failed to start playback: {e}")
-                    return (False, "Could not start playback")
+                    return (False, self._response("error"))
 
             # If at start of playlist, can't go previous
             if current_pos <= 0:
-                return (False, "Already at start of playlist")
+                return (False, self._response("error"))
 
             try:
                 self.client.previous()
             except Exception as e:
                 logger.error(f"MPD previous() failed: {e}")
-                return (False, f"Could not go to previous: {e}")
+                return (False, self._response("error"))
 
             # Wait a moment for MPD to process
             time.sleep(0.1)
@@ -554,7 +556,7 @@ class MPDController:
 
             # Check if actually playing
             if new_status.get('state') == 'stop':
-                return (False, "Previous song unavailable or unplayable")
+                return (False, self._response("error"))
 
             song_name = current.get('title') or current.get('file', 'Unknown')
             if song_name == 'Unknown' and 'file' in current:
@@ -562,7 +564,7 @@ class MPDController:
                 song_name = os.path.splitext(os.path.basename(current['file']))[0]
 
             logger.info(f"🎵 Now playing: {song_name}")
-            return (True, f"Previous: {song_name}")
+            return (True, self._response("previous_song"))
 
     def search_music(self, query: str) -> Optional[Tuple[str, float]]:
         """
@@ -633,10 +635,10 @@ class MPDController:
                 self.client.load('favorites')
                 self.client.play()
                 logger.info("⭐ Playing favorites playlist")
-                return (True, "Playing your favorites")
+                return (True, self._response("favorites"))
             except Exception as e:
                 logger.error(f"Failed to play favorites: {e}")
-                return (False, "I couldn't find your favorites playlist")
+                return (False, self._response("favorites_missing"))
 
     def add_to_favorites(self) -> Tuple[bool, str]:
         """
@@ -650,7 +652,7 @@ class MPDController:
                 current = self.client.currentsong()
 
                 if not current or 'file' not in current:
-                    return (False, "No song is currently playing")
+                    return (False, self._response("no_song_playing"))
 
                 file_path = current['file']
 
@@ -659,11 +661,11 @@ class MPDController:
 
                 song_name = current.get('title', os.path.basename(file_path))
                 logger.info(f"⭐ Added to favorites: {song_name}")
-                return (True, f"Added {song_name} to favorites")
+                return (True, self._response("liked"))
 
             except Exception as e:
                 logger.error(f"Failed to add to favorites: {e}")
-                return (False, "I couldn't add this song to favorites")
+                return (False, self._response("error"))
 
     def set_sleep_timer(self, minutes: int) -> Tuple[bool, str]:
         """
@@ -675,60 +677,45 @@ class MPDController:
         Returns:
             Tuple of (success, message)
         """
-        def sleep_timer_worker(duration_minutes):
-            """Worker thread for sleep timer"""
-            # Sleep for (duration - 30 seconds)
-            fade_start = max(0, duration_minutes * 60 - 30)
+        # Configure SleepTimer callbacks (if not already set)
+        if self._sleep_timer._get_volume is None:
+            # Get volume callback
+            def get_volume() -> int:
+                try:
+                    with self._ensure_connection():
+                        status = self.client.status()
+                        return int(status.get('volume', 50))
+                except Exception:
+                    return 50
 
-            if self._sleep_timer_cancel.wait(timeout=fade_start):
-                return  # Cancelled
+            # Set volume callback
+            def set_volume(volume: int):
+                try:
+                    with self._ensure_connection():
+                        self.client.setvol(volume)
+                except Exception as e:
+                    logger.error(f"Failed to set volume: {e}")
 
-            # Fade out over 30 seconds
-            logger.info("Sleep timer: starting fade-out")
+            # Stop playback callback
+            def stop_playback():
+                try:
+                    with self._ensure_connection():
+                        self.client.stop()
+                except Exception as e:
+                    logger.error(f"Failed to stop playback: {e}")
 
-            try:
-                with self._ensure_connection():
-                    status = self.client.status()
-                    original_vol = int(status.get('volume', 50))
+            # Set callbacks
+            self._sleep_timer._get_volume = get_volume
+            self._sleep_timer._set_volume = set_volume
+            self._sleep_timer._stop = stop_playback
 
-                    for i in range(30):
-                        if self._sleep_timer_cancel.is_set():
-                            return  # Cancelled
+        # Delegate to SleepTimer
+        success = self._sleep_timer.start(minutes)
 
-                        fade_vol = int(original_vol * (1 - i / 30))
-                        self.client.setvol(fade_vol)
-                        time.sleep(1)
-
-                    # Stop playback
-                    self.client.stop()
-                    logger.info("Sleep timer: stopped playback")
-
-            except Exception as e:
-                logger.error(f"Sleep timer error: {e}")
-
-        # Atomic cancel+start operation (prevents race condition)
-        with self._sleep_timer_lock:
-            # Cancel existing timer
-            if self._sleep_timer_thread and self._sleep_timer_thread.is_alive():
-                self._sleep_timer_cancel.set()
-                self._sleep_timer_thread.join(timeout=2.0)  # Longer timeout for graceful exit
-
-                # Warn if thread didn't exit cleanly
-                if self._sleep_timer_thread.is_alive():
-                    logger.warning("Sleep timer thread did not exit cleanly (still running after 2s)")
-                    # Thread will eventually exit on next cancel check
-
-            # Reset cancel event and start new timer (still holding lock)
-            self._sleep_timer_cancel.clear()
-            self._sleep_timer_thread = threading.Thread(
-                target=sleep_timer_worker,
-                args=(minutes,),
-                daemon=True
-            )
-            self._sleep_timer_thread.start()
-
-        logger.info(f"Sleep timer set: {minutes} minutes")
-        return (True, f"I'll stop playing in {minutes} minutes")
+        if success:
+            return (True, self._response("sleep_timer", minutes=minutes))
+        else:
+            return (False, self._response("error"))
 
     def cancel_sleep_timer(self) -> bool:
         """
@@ -737,13 +724,8 @@ class MPDController:
         Returns:
             True if timer was cancelled
         """
-        with self._sleep_timer_lock:
-            if self._sleep_timer_thread and self._sleep_timer_thread.is_alive():
-                self._sleep_timer_cancel.set()
-                self._sleep_timer_thread.join(timeout=1)
-                logger.info("Sleep timer cancelled")
-                return True
-            return False
+        # Delegate to SleepTimer
+        return self._sleep_timer.cancel()
 
     def set_repeat(self, mode: str) -> Tuple[bool, str]:
         """
@@ -760,24 +742,24 @@ class MPDController:
                 if mode == 'off':
                     self.client.repeat(0)
                     self.client.single(0)
-                    msg = "Repeat off"
+                    msg = self._response("repeat_off")
                 elif mode == 'single':
                     self.client.repeat(1)
                     self.client.single(1)
-                    msg = "Repeating current song"
+                    msg = self._response("repeat_on")
                 elif mode == 'playlist':
                     self.client.repeat(1)
                     self.client.single(0)
-                    msg = "Repeating playlist"
+                    msg = self._response("repeat_on")
                 else:
-                    return (False, f"Unknown repeat mode: {mode}")
+                    return (False, self._response("error"))
 
                 logger.info(f"🔁 Repeat mode: {mode}")
                 return (True, msg)
 
             except Exception as e:
                 logger.error(f"Failed to set repeat mode: {e}")
-                return (False, f"Could not set repeat mode")
+                return (False, self._response("error"))
 
     def toggle_shuffle(self) -> Tuple[bool, str]:
         """
@@ -795,13 +777,13 @@ class MPDController:
                 new_shuffle = not current_shuffle
                 self.client.random(1 if new_shuffle else 0)
 
-                msg = "Shuffle on" if new_shuffle else "Shuffle off"
+                msg = self._response("shuffle_on" if new_shuffle else "shuffle_off")
                 logger.info(f"🔀 Shuffle: {msg}")
                 return (True, msg)
 
             except Exception as e:
                 logger.error(f"Failed to toggle shuffle: {e}")
-                return (False, "Could not toggle shuffle")
+                return (False, self._response("error"))
 
     def set_shuffle(self, enabled: bool) -> Tuple[bool, str]:
         """
@@ -816,13 +798,13 @@ class MPDController:
         with self._ensure_connection():
             try:
                 self.client.random(1 if enabled else 0)
-                msg = "Shuffle on" if enabled else "Shuffle off"
+                msg = self._response("shuffle_on" if enabled else "shuffle_off")
                 logger.info(f"🔀 Shuffle: {msg}")
                 return (True, msg)
 
             except Exception as e:
                 logger.error(f"Failed to set shuffle: {e}")
-                return (False, "Could not set shuffle")
+                return (False, self._response("error"))
 
     def add_to_queue(self, query: str, play_next: bool = False) -> Tuple[bool, str]:
         """
@@ -841,7 +823,7 @@ class MPDController:
                 search_result = self.search_music(query)
 
                 if not search_result:
-                    return (False, f"I couldn't find '{query}' in your music library")
+                    return (False, self._response("no_music_found", query=query))
 
                 matched_file, confidence = search_result
 
@@ -850,18 +832,18 @@ class MPDController:
                     status = self.client.status()
                     current_pos = int(status.get('song', 0))
                     self.client.addid(matched_file, current_pos + 1)
-                    msg = f"Playing {query} next"
+                    msg = self._response("play_next", song=query)
                 else:
                     # Add to end of queue
                     self.client.add(matched_file)
-                    msg = f"Added {query} to queue"
+                    msg = self._response("add_to_queue", song=query)
 
                 logger.info(f"Added to queue: {matched_file} (play_next={play_next})")
                 return (True, msg)
 
             except Exception as e:
                 logger.error(f"Failed to add to queue: {e}")
-                return (False, "Could not add to queue")
+                return (False, self._response("error"))
 
     def clear_queue(self) -> Tuple[bool, str]:
         """
@@ -874,11 +856,11 @@ class MPDController:
             try:
                 self.client.clear()
                 logger.info("Queue cleared")
-                return (True, "Queue cleared")
+                return (True, self._response("queue_cleared"))
 
             except Exception as e:
                 logger.error(f"Failed to clear queue: {e}")
-                return (False, "Could not clear queue")
+                return (False, self._response("error"))
 
     def get_queue(self) -> List[Dict]:
         """

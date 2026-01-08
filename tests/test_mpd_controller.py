@@ -12,6 +12,7 @@ import threading
 import time
 
 import config
+import json
 from modules.mpd_controller import MPDController
 
 
@@ -26,7 +27,8 @@ class TestMPDController(unittest.TestCase):
         # Mock the MPD client
         self.mock_client = Mock()
         self.controller.client = self.mock_client
-        self.controller._connected = True
+        self.controller._mpd_connection._client = self.mock_client
+        self.controller._mpd_connection._connected = True
 
         # Default mock status
         self.mock_client.status.return_value = {
@@ -43,6 +45,13 @@ class TestMPDController(unittest.TestCase):
             'album': 'Test Album',
             'file': 'test/song.mp3',
         }
+        self.responses = json.loads(
+            Path(__file__).resolve().parent.parent.joinpath("resources/response_library.json").read_text(encoding="utf-8")
+        )
+
+    def _response_options(self, language: str, key: str, **params):
+        options = self.responses.get(language, {}).get(key, [])
+        return [template.format(**params) for template in options]
 
     def tearDown(self):
         """Clean up after tests"""
@@ -55,7 +64,7 @@ class TestMPDController(unittest.TestCase):
         When: connect() called
         Then: Connects successfully
         """
-        self.controller._connected = False
+        self.controller._mpd_connection._connected = False
 
         success = self.controller.connect()
 
@@ -68,7 +77,7 @@ class TestMPDController(unittest.TestCase):
 
         self.mock_client.close.assert_called_once()
         self.mock_client.disconnect.assert_called_once()
-        self.assertFalse(self.controller._connected)
+        self.assertFalse(self.controller._mpd_connection._connected)
 
     def test_get_status(self):
         """Test: Get MPD player status
@@ -94,7 +103,7 @@ class TestMPDController(unittest.TestCase):
         success, message, _confidence = self.controller.play()
 
         self.assertTrue(success)
-        self.assertIn('Playing', message)
+        self.assertIn(message, self._response_options('fr', 'playing_song', song="Test Song"))
         self.mock_client.play.assert_called_once()
 
     def test_play_with_query_found(self):
@@ -114,7 +123,11 @@ class TestMPDController(unittest.TestCase):
         success, message, _confidence = self.controller.play("maman")
 
         self.assertTrue(success)
-        self.assertIn('maman', message.lower())
+        expected = (
+            self._response_options('fr', 'playing_song', song="Louane - maman") +
+            self._response_options('fr', 'playing_song', song="maman")
+        )
+        self.assertIn(message, expected)
         self.mock_client.clear.assert_not_called()
         self.mock_client.playid.assert_called_once_with(42)
 
@@ -131,7 +144,7 @@ class TestMPDController(unittest.TestCase):
         success, message, confidence = self.controller.play("nonexistent song")
 
         self.assertFalse(success)
-        self.assertIn("music library is empty", message.lower())
+        self.assertIn(message, self._response_options('fr', 'empty_library'))
         self.assertEqual(confidence, 0.0)
 
     def test_pause(self):
@@ -144,7 +157,7 @@ class TestMPDController(unittest.TestCase):
         success, message = self.controller.pause()
 
         self.assertTrue(success)
-        self.assertIn("Paused", message)  # Accept "Paused" or "Paused: Song Name"
+        self.assertIn(message, self._response_options('fr', 'paused'))
         self.mock_client.pause.assert_called_once_with(1)
 
     def test_resume(self):
@@ -176,7 +189,7 @@ class TestMPDController(unittest.TestCase):
         success, message = self.controller.stop()
 
         self.assertTrue(success)
-        self.assertEqual(message, "Stopped")
+        self.assertIn(message, self._response_options('fr', 'stopped'))
         self.mock_client.stop.assert_called_once()
 
     def test_next(self):
@@ -189,7 +202,7 @@ class TestMPDController(unittest.TestCase):
         success, message = self.controller.next()
 
         self.assertTrue(success)
-        self.assertIn('Next', message)
+        self.assertIn(message, self._response_options('fr', 'next_song'))
         self.mock_client.next.assert_called_once()
 
     def test_previous(self):
@@ -207,7 +220,7 @@ class TestMPDController(unittest.TestCase):
         success, message = self.controller.previous()
 
         self.assertTrue(success)
-        self.assertIn('Previous', message)
+        self.assertIn(message, self._response_options('fr', 'previous_song'))
         self.mock_client.previous.assert_called_once()
 
     @unittest.skip("Volume control moved to VolumeManager")
@@ -467,7 +480,7 @@ class TestMPDController(unittest.TestCase):
         success, message = self.controller.play_favorites()
 
         self.assertTrue(success)
-        self.assertIn('favorites', message.lower())
+        self.assertIn(message, self._response_options('fr', 'favorites'))
         self.mock_client.clear.assert_called_once()
         self.mock_client.load.assert_called_once_with('favorites')
         self.mock_client.play.assert_called_once()
@@ -484,7 +497,7 @@ class TestMPDController(unittest.TestCase):
         success, message = self.controller.play_favorites()
 
         self.assertFalse(success)
-        self.assertIn("couldn't find", message.lower())
+        self.assertIn(message, self._response_options('fr', 'favorites_missing'))
 
     def test_add_to_favorites(self):
         """Test: Add current song to favorites
@@ -496,7 +509,7 @@ class TestMPDController(unittest.TestCase):
         success, message = self.controller.add_to_favorites()
 
         self.assertTrue(success)
-        self.assertIn('favorites', message.lower())
+        self.assertIn(message, self._response_options('fr', 'liked'))
         self.mock_client.playlistadd.assert_called_once_with('favorites', 'test/song.mp3')
 
     def test_add_to_favorites_no_song(self):
@@ -511,7 +524,7 @@ class TestMPDController(unittest.TestCase):
         success, message = self.controller.add_to_favorites()
 
         self.assertFalse(success)
-        self.assertIn('no song', message.lower())
+        self.assertIn(message, self._response_options('fr', 'no_song_playing'))
 
     def test_set_sleep_timer(self):
         """Test: Set sleep timer
@@ -524,8 +537,7 @@ class TestMPDController(unittest.TestCase):
 
         self.assertTrue(success)
         self.assertIn('1 minute', message.lower())
-        self.assertIsNotNone(self.controller._sleep_timer_thread)
-        self.assertTrue(self.controller._sleep_timer_thread.is_alive())
+        self.assertTrue(self.controller._sleep_timer.is_active())
 
         # Clean up
         self.controller.cancel_sleep_timer()
@@ -547,8 +559,7 @@ class TestMPDController(unittest.TestCase):
 
         # Wait for thread to finish
         time.sleep(0.5)
-        if self.controller._sleep_timer_thread:
-            self.assertFalse(self.controller._sleep_timer_thread.is_alive())
+        self.assertFalse(self.controller._sleep_timer.is_active())
 
     def test_cancel_sleep_timer_none_active(self):
         """Test: Cancel when no timer active

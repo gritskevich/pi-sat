@@ -1,45 +1,18 @@
-"""
-Music Library Module - Music Catalog and Search
-
-Manages music catalog and search functionality completely independent of MPD.
-Can be used by MPD controller, CLI tools, web interface, tests, etc.
-
-Key Features:
-- Fuzzy search with typo tolerance
-- Phonetic search for cross-language matching (French→English, etc.)
-- Hybrid search (text + phonetic) for 90% accuracy
-- Favorites playlist management
-- Catalog caching for performance
-- File-based and MPD-based catalog loading
-- Standalone operation (no MPD required)
-
-Search Modes:
-- Text-only: Traditional fuzzy matching (50% accuracy on French→English)
-- Phonetic-only: Beider-Morse phonetic matching (70% accuracy)
-- Hybrid (default): Combined text + phonetic (90% accuracy)
-
-Following KISS principle: Simple, focused, reusable.
-"""
-
 import os
 import logging
 import re
 import unicodedata
-from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
+from collections import OrderedDict
 import config
 from modules.logging_utils import setup_logger
-from modules.intent_engine import IntentEngine
 
-# Phonetic matching for cross-language search (French→English, etc.)
-try:
-    from abydos.phonetic import BeiderMorse
-    PHONETIC_AVAILABLE = True
-except ImportError:
-    PHONETIC_AVAILABLE = False
-    BeiderMorse = None
+from modules.phonetic import PhoneticEncoder
 
 logger = setup_logger(__name__)
+
+# LRU cache config
+MAX_SEARCH_CACHE_SIZE = 100
 
 
 class MusicLibrary:
@@ -72,7 +45,6 @@ class MusicLibrary:
         self.library_path = library_path
         self.fuzzy_threshold = fuzzy_threshold
         self.cache_enabled = cache_enabled
-        self.phonetic_enabled = phonetic_enabled and PHONETIC_AVAILABLE
         self.phonetic_weight = phonetic_weight if phonetic_weight is not None else config.PHONETIC_WEIGHT
         self.debug = debug
 
@@ -80,26 +52,16 @@ class MusicLibrary:
         self._catalog: List[str] = []
         self._catalog_metadata: List[Tuple[str, list[str]]] = []  # (file_path, variants)
         self._favorites: List[str] = []
-        self._phonetic_cache: Dict[str, str] = {}
-        self._query_phonetic_cache: Dict[str, str] = {}
-        self._search_best_cache: Dict[str, Tuple[str, float]] = {}
+        self._search_best_cache: OrderedDict[str, Tuple[str, float]] = OrderedDict()
 
-        # Search engine (text fuzzy matching)
-        self._search_engine = IntentEngine(fuzzy_threshold=fuzzy_threshold, debug=debug)
+        # Phonetic search engine (FONEM - French-specific, 75x faster than BeiderMorse)
+        self._phonetic_encoder = PhoneticEncoder(algorithm="fonem")
+        self.phonetic_enabled = phonetic_enabled and self._phonetic_encoder.is_available()
 
-        # Phonetic search engine (for cross-language matching)
-        self._phonetic_matcher = None
         if self.phonetic_enabled:
-            try:
-                self._phonetic_matcher = BeiderMorse(
-                    language_arg=0,      # Auto-detect language (supports 16 languages)
-                    name_mode='gen',     # General mode (not name-specific)
-                    match_mode='approx'  # Approximate matching
-                )
-                logger.info("Phonetic matching enabled (Beider-Morse)")
-            except Exception as e:
-                logger.warning(f"Failed to initialize phonetic matcher: {e}")
-                self.phonetic_enabled = False
+            logger.info(f"Phonetic matching enabled (FONEM - French)")
+        elif phonetic_enabled:
+            logger.warning("Phonetic matching requested but FONEM not available")
 
         if debug:
             logger.setLevel(logging.DEBUG)
@@ -156,9 +118,10 @@ class MusicLibrary:
 
         self._catalog = catalog
         self._catalog_metadata = metadata
-        self._phonetic_cache = {}
-        self._query_phonetic_cache = {}
-        self._search_best_cache = {}
+        self._search_best_cache = OrderedDict()
+        # Clear phonetic cache when catalog changes
+        if self._phonetic_encoder:
+            self._phonetic_encoder.clear_cache()
 
         logger.info(f"Loaded {len(catalog)} songs from filesystem")
         return len(catalog)
@@ -191,9 +154,10 @@ class MusicLibrary:
 
             self._catalog = catalog
             self._catalog_metadata = metadata
-            self._phonetic_cache = {}
-            self._query_phonetic_cache = {}
-            self._search_best_cache = {}
+            self._search_best_cache = OrderedDict()
+            # Clear phonetic cache when catalog changes
+            if self._phonetic_encoder:
+                self._phonetic_encoder.clear_cache()
 
             logger.info(f"Loaded {len(catalog)} songs from MPD")
             return len(catalog)
@@ -242,7 +206,7 @@ class MusicLibrary:
                     return (file_path, 1.0)
 
         # Choose search method
-        if self.phonetic_enabled and self._phonetic_matcher:
+        if self.phonetic_enabled:
             # Hybrid search (text + phonetic)
             result = self._search_hybrid(query)
         else:
@@ -302,7 +266,7 @@ class MusicLibrary:
 
         try:
             # Choose search method (same as search())
-            if self.phonetic_enabled and self._phonetic_matcher:
+            if self.phonetic_enabled:
                 result = self._search_hybrid(query)
             else:
                 result = self._search_text_only(query)
@@ -310,7 +274,7 @@ class MusicLibrary:
             if result:
                 file_path, confidence = result
                 logger.info(f"Search (best): '{query}' → '{file_path}' ({confidence:.2%})")
-                self._search_best_cache[cache_key] = (file_path, confidence)
+                self._add_to_cache(cache_key, (file_path, confidence))
                 return result
             else:
                 # Should never happen unless catalog is empty
@@ -369,8 +333,8 @@ class MusicLibrary:
 
         norm_query = self._normalize_variant(query)
 
-        # Encode query to phonetic
-        query_phonetic_str = self._get_query_phonetic(query)
+        # Encode query to phonetic (no caching - unbounded user queries)
+        query_phonetic_str = self._phonetic_encoder.encode_query(query)
         if not query_phonetic_str:
             return self._search_text_only(query)
 
@@ -404,7 +368,8 @@ class MusicLibrary:
                 variants = per_file_variants[file_path]
                 for variant in variants:
                     phonetic_score = 0
-                    phonetic_str = self._get_phonetic_variant(variant)
+                    # Cache variant encodings (limited set, ~400 variants)
+                    phonetic_str = self._phonetic_encoder.encode_pattern(variant)
                     if phonetic_str:
                         phonetic_score = fuzz.token_set_ratio(query_phonetic_str, phonetic_str)
                     combined_score = (text_score * text_weight) + (phonetic_score * self.phonetic_weight)
@@ -426,61 +391,25 @@ class MusicLibrary:
 
         return (best_file_path, confidence)
 
-    def _encode_phonetic(self, text: str, cache: dict, log_errors: bool = False) -> str:
+    def _add_to_cache(self, key: str, value: Tuple[str, float]) -> None:
         """
-        Encode text phonetically with caching.
+        Add item to LRU cache with max size limit.
 
         Args:
-            text: Text to encode
-            cache: Cache dictionary to use
-            log_errors: Whether to log encoding errors
-
-        Returns:
-            Phonetic encoding string
+            key: Cache key (normalized query)
+            value: Tuple of (file_path, confidence)
         """
-        if not self.phonetic_enabled or not self._phonetic_matcher:
-            return ""
-        if not self._phonetic_allowed(text):
-            return ""
+        # If key already exists, remove it first (will be re-added at end)
+        if key in self._search_best_cache:
+            del self._search_best_cache[key]
 
-        normalized = self._normalize_variant(text)
-        cached = cache.get(normalized)
-        if cached is not None:
-            return cached
+        # Add new item
+        self._search_best_cache[key] = value
 
-        try:
-            encoded = self._phonetic_matcher.encode(normalized or text)
-            phonetic_str = '|'.join(sorted(encoded)) if isinstance(encoded, tuple) else str(encoded)
-        except Exception as e:
-            if log_errors:
-                logger.warning(f"Phonetic encoding failed for '{text}': {e}")
-            phonetic_str = ""
-
-        cache[normalized] = phonetic_str
-        return phonetic_str
-
-    def _get_phonetic_variant(self, variant: str) -> str:
-        """Get phonetic encoding for a variant (from catalog)."""
-        return self._encode_phonetic(variant, self._phonetic_cache, log_errors=False)
-
-    def _get_query_phonetic(self, query: str) -> str:
-        """Get phonetic encoding for a query (from user input)."""
-        return self._encode_phonetic(query, self._query_phonetic_cache, log_errors=True)
-
-    def _phonetic_allowed(self, text: str) -> bool:
-        norm = unicodedata.normalize('NFKD', text.lower())
-        norm = ''.join(ch for ch in norm if not unicodedata.combining(ch))
-        norm = re.sub(r'[^a-z0-9]+', ' ', norm).strip()
-        if not norm:
-            return False
-        if len(norm.replace(' ', '')) <= 4:
-            return False
-        tokens = [t for t in norm.split() if t]
-        if len(tokens) >= 3:
-            return False
-        if len(norm.replace(' ', '')) > 24:
-            return False
-        return True
+        # Enforce max size by removing oldest items
+        while len(self._search_best_cache) > MAX_SEARCH_CACHE_SIZE:
+            # Remove oldest item (first item in OrderedDict)
+            self._search_best_cache.popitem(last=False)
 
     def _build_searchable_variants(self, basename: str) -> list[str]:
         variants = [basename]
@@ -646,9 +575,9 @@ class MusicLibrary:
         self._catalog = []
         self._catalog_metadata = []
         self._favorites = []
-        self._phonetic_cache = {}
-        self._query_phonetic_cache = {}
-        self._search_best_cache = {}
+        self._search_best_cache = OrderedDict()
+        if self._phonetic_encoder:
+            self._phonetic_encoder.clear_cache()
         logger.debug("Catalog cache cleared")
 
     def is_empty(self) -> bool:

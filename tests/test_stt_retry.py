@@ -9,6 +9,7 @@ import sys
 import os
 from unittest.mock import Mock, patch, MagicMock
 
+import config
 from modules.hailo_stt import HailoSTT
 from tests.test_base import PiSatTestBase
 
@@ -18,6 +19,8 @@ class TestSTTRetry(PiSatTestBase):
     
     def setUp(self):
         super().setUp()
+        if config.STT_BACKEND != "hailo":
+            self.skipTest("STT_BACKEND is not 'hailo'")
         # Never start real Hailo threads in unit tests
         self._load_model_patcher = patch.object(HailoSTT, "_load_model", return_value=None)
         self._load_model_patcher.start()
@@ -150,4 +153,3 @@ class TestSTTRetry(PiSatTestBase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

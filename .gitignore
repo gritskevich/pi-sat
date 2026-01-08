@@ -4,6 +4,9 @@ __pycache__/
 *$py.class
 *.so
 .Python
+*.egg-info/
+dist/
+build/
 
 # Virtual environments
 venv/
@@ -32,6 +35,7 @@ Thumbs.db
 debug_audio/
 *.wav.tmp
 benchmark_results*.json
+whisper_comparison_results.json
 
 # Audio files - exclude all except wake_word and test_metadata.json
 # Keep: wake_word samples (hand-crafted), test_metadata.json

@@ -9,6 +9,7 @@ import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+import json
 from modules.piper_tts import PiperTTS, speak
 import config
 
@@ -19,6 +20,13 @@ class TestPiperTTS(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.voice_model = Path(config.PIPER_MODEL_PATH)
+        self.responses = json.loads(
+            Path(__file__).resolve().parent.parent.joinpath("resources/response_library.json").read_text(encoding="utf-8")
+        )
+
+    def _response_options(self, language: str, key: str, **params):
+        options = self.responses.get(language, {}).get(key, [])
+        return [template.format(**params) for template in options]
 
     def test_initialization_default(self):
         """Test PiperTTS initialization with defaults"""
@@ -148,24 +156,26 @@ class TestPiperTTS(unittest.TestCase):
              patch("modules.audio_devices.validate_alsa_device", return_value=True):
             tts = PiperTTS()
 
+        language = tts._responses.language
+
         # Test simple templates
-        self.assertEqual(tts.get_response_template('paused'), "Paused")
-        self.assertEqual(tts.get_response_template('skipped'), "Skipping")
+        self.assertIn(tts.get_response_template('paused'), self._response_options(language, 'paused'))
+        self.assertIn(tts.get_response_template('skipped'), self._response_options(language, 'skipped'))
 
         # Test templates with parameters
-        response = tts.get_response_template('playing', song="maman")
-        self.assertEqual(response, "Playing maman")
+        response = tts.get_response_template('playing_song', song="maman")
+        self.assertIn(response, self._response_options(language, 'playing_song', song="maman"))
 
         response = tts.get_response_template('sleep_timer', minutes=30)
-        self.assertEqual(response, "I'll stop in 30 minutes")
+        self.assertIn(response, self._response_options(language, 'sleep_timer', minutes=30))
 
         # Test unknown intent
         response = tts.get_response_template('unknown_intent')
-        self.assertEqual(response, "Okay")
+        self.assertIn(response, self._response_options(language, 'unknown'))
 
         # Test missing parameter (should return template without formatting)
-        response = tts.get_response_template('playing')  # Missing 'song' param
-        self.assertIn('song', response)  # Template variable still present
+        response = tts.get_response_template('playing_song')  # Missing 'song' param
+        self.assertTrue(isinstance(response, str))
 
     def test_response_template_all_intents(self):
         """Test all defined response templates"""

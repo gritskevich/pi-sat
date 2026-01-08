@@ -1,36 +1,117 @@
 import subprocess
 import os
+import shutil
+from modules.logging_utils import setup_logger, log_info, log_warning
 import config
+
+logger = setup_logger(__name__)
+
+
+def _release_mpd_audio_device():
+    """
+    Release audio device held by MPD if it's paused.
+
+    When MPD is paused (not stopped), it may hold onto the audio device,
+    preventing other applications from playing sound. This function stops
+    MPD if it's in paused state, ensuring the audio device is released.
+
+    Returns:
+        True if MPD was paused and stopped, False otherwise
+    """
+    # Not needed (and harmful) when using Pulse/PipeWire mixing.
+    device = getattr(config, "OUTPUT_ALSA_DEVICE", None)
+    if device in ("pulse", "pipewire"):
+        return False
+
+    try:
+        # Check MPD status
+        result = subprocess.run(
+            ["mpc", "status"],
+            capture_output=True,
+            text=True,
+            timeout=0.5
+        )
+
+        # If MPD is paused, stop it to release the audio device
+        if result.returncode == 0 and "[paused]" in result.stdout:
+            subprocess.run(
+                ["mpc", "stop"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=0.5
+            )
+            return True
+
+    except Exception:
+        pass
+
+    return False
 
 
 def play_wake_sound():
     """
-    Play wake sound in background (non-blocking).
+    Play wake word detection sound.
 
-    This allows recording to start immediately without waiting
-    for the sound to finish playing.
-
-    SIMPLIFIED: Volume controlled by PulseAudio sink (pactl), not sox.
-    All audio plays at 100%; master volume controls everything.
+    Uses paplay (PulseAudio) when output device is 'pulse' for better audio mixing
+    with MPD. If MPD is paused and blocking the audio device, it will be stopped
+    to ensure the beep plays (it will be resumed later by the command processor).
     """
     if not getattr(config, "PLAY_WAKE_SOUND", True):
+        log_info(logger, "Wake sound disabled (PLAY_WAKE_SOUND=false)")
         return
     path = getattr(config, "WAKE_SOUND_PATH", "")
     if not path or not os.path.exists(path):
+        log_info(logger, f"Wake sound file missing: {path}")
         return
+
+    log_info(logger, "Wake sound: start")
+
+    # Release audio device if MPD is paused (will be resumed later)
+    _release_mpd_audio_device()
+
     device = getattr(config, "OUTPUT_ALSA_DEVICE", None)
 
-    # Play at 100% volume (NO sox scaling), PulseAudio sink controls actual volume
-    cmd_parts = ["aplay"]
-    if device:
-        cmd_parts += ["-D", device]
-    cmd_parts += ["-q", path]
+    # Prefer PipeWire native playback when available; fallback to PulseAudio/ALSA.
+    if device in ("pulse", "pipewire") and shutil.which("pw-play"):
+        # PipeWire can drop ultra-short sounds when the sink is idle.
+        # Add leading/trailing silence via sox to wake the sink reliably.
+        if shutil.which("sox"):
+            sox_proc = subprocess.run(
+                ["sox", path, "-t", "raw", "-r", "48000", "-e", "signed", "-b", "16", "-c", "1", "-", "repeat", "2", "pad", "0.03", "0.05"],
+                capture_output=True,
+                timeout=2
+            )
+            if sox_proc.returncode != 0:
+                err = sox_proc.stderr.decode("utf-8", errors="replace").strip()
+                log_warning(logger, f"Wake sound sox failed: {err}")
+                return
+            play_proc = subprocess.run(
+                ["pw-play", "--format", "s16", "--rate", "48000", "--channels", "1", "--volume", "1.0", "-"],
+                input=sox_proc.stdout,
+                capture_output=True,
+                timeout=2
+            )
+            if play_proc.returncode != 0:
+                err = play_proc.stderr.decode("utf-8", errors="replace").strip()
+                log_warning(logger, f"Wake sound pw-play failed: {err}")
+            return
+        else:
+            cmd_parts = ["pw-play", "--volume", "1.0", path]
+    elif device == "pulse":
+        cmd_parts = ["paplay", "--volume=65536", path]  # 65536 = 100% volume
+    else:
+        cmd_parts = ["aplay"]
+        if device:
+            cmd_parts += ["-D", device]
+        cmd_parts += ["-q", path]
 
-    cmd = " ".join(cmd_parts)
-    try:
-        # Use Popen for non-blocking playback
-        subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
-
-
+    if "cmd_parts" in locals():
+        try:
+            subprocess.run(
+                cmd_parts,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2
+            )
+        except Exception:
+            pass

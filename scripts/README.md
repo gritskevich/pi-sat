@@ -23,8 +23,22 @@ python scripts/add_audio_test_case.py --suite e2e_french --group positive --file
 python scripts/test_e2e_diagnostic.py
 ```
 
+## Phonetic Algorithm Testing
+
+```bash
+# Benchmark all phonetic algorithms (BeiderMorse, FONEM, Soundex, Metaphone, etc.)
+python scripts/phonetic_benchmark.py
+
+# Show detailed per-test results
+python scripts/phonetic_benchmark.py --debug
+
+# Use custom music directory
+python scripts/phonetic_benchmark.py --music-dir /path/to/music
+```
+
+See `docs/PHONETIC_ALGORITHM_COMPARISON.md` for research findings.
+
 ## Misc
 
 - `scripts/speak.py`: speak text (TTS)
-- `scripts/test_live.py`: quick live smoke tests (wake/STT/pipeline)
-- `scripts/monitor_connections.sh`: logs WiFi + USB mic status
+- `scripts/calibrate_vad.py`: tune VAD thresholds

@@ -8,12 +8,15 @@ import numpy as np
 
 from modules.hailo_stt import HailoSTT
 from tests.test_base import PiSatTestBase
+import config
 
 
 class TestHailoSTTSuite(PiSatTestBase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        if config.STT_BACKEND != "hailo":
+            raise unittest.SkipTest("STT_BACKEND is not 'hailo'")
         if os.getenv("PISAT_RUN_HAILO_TESTS", "0") != "1":
             raise unittest.SkipTest("Set PISAT_RUN_HAILO_TESTS=1 to run Hailo hardware tests")
 

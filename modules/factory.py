@@ -21,10 +21,15 @@ from modules.speech_recorder import SpeechRecorder
 from modules.hailo_stt import HailoSTT
 from modules.intent_engine import IntentEngine
 from modules.mpd_controller import MPDController
+from modules.mpd_connection import MPDConnection
+from modules.sleep_timer import SleepTimer
 from modules.piper_tts import PiperTTS
 from modules.volume_manager import VolumeManager
 from modules.command_processor import CommandProcessor
 from modules.music_library import MusicLibrary
+from modules.logging_utils import setup_logger
+
+logger = setup_logger(__name__)
 
 
 def create_music_library(
@@ -49,13 +54,14 @@ def create_music_library(
     # Update MPD database to sync with filesystem changes
     try:
         subprocess.run(['mpc', 'update'], check=False, capture_output=True, timeout=5)
-    except Exception:
-        pass  # Continue even if update fails
+    except Exception as e:
+        logger.debug(f"MPD database update failed (non-critical): {e}")
 
     return MusicLibrary(
         library_path=library_path,
         fuzzy_threshold=fuzzy_threshold,
         cache_enabled=True,
+        phonetic_enabled=True,  # FONEM (French-specific, 75x faster than BeiderMorse)
         debug=debug
     )
 
@@ -65,6 +71,8 @@ def create_mpd_controller(
     port: int = None,
     music_library: str = None,  # DEPRECATED: Use music_library_instance
     music_library_instance: MusicLibrary = None,  # NEW: Inject MusicLibrary
+    mpd_connection: MPDConnection = None,  # NEW: Inject MPDConnection
+    sleep_timer: SleepTimer = None,  # NEW: Inject SleepTimer
     debug: bool = False
 ) -> MPDController:
     """
@@ -75,6 +83,8 @@ def create_mpd_controller(
         port: MPD port (None for config default)
         music_library: Music library path (None for config default) - DEPRECATED
         music_library_instance: Pre-configured MusicLibrary instance (recommended)
+        mpd_connection: Pre-configured MPDConnection instance (optional)
+        sleep_timer: Pre-configured SleepTimer instance (optional)
         debug: Enable debug logging
 
     Returns:
@@ -91,9 +101,21 @@ def create_mpd_controller(
     if music_library_instance is None:
         music_library_instance = create_music_library(debug=debug)
 
+    # Create MPDConnection if not injected
+    if mpd_connection is None:
+        mpd_connection = MPDConnection(
+            host=host,
+            port=port,
+            debug=debug
+        )
+
+    # Create SleepTimer if not injected
+    if sleep_timer is None:
+        sleep_timer = SleepTimer(debug=debug)
+
     mpd = MPDController(
-        host=host,
-        port=port,
+        mpd_connection=mpd_connection,
+        sleep_timer=sleep_timer,
         music_library_instance=music_library_instance,
         debug=debug
     )
@@ -142,7 +164,7 @@ def create_speech_recorder(debug: bool = False) -> SpeechRecorder:
     return SpeechRecorder(debug=debug)
 
 
-def create_stt_engine(debug: bool = False) -> HailoSTT:
+def create_stt_engine(debug: bool = False):
     """
     Create STT engine instance.
 
@@ -152,6 +174,9 @@ def create_stt_engine(debug: bool = False) -> HailoSTT:
     Returns:
         Configured HailoSTT instance
     """
+    if config.STT_BACKEND == "cpu":
+        from modules.cpu_stt import CpuSTT
+        return CpuSTT(debug=debug)
     return HailoSTT(debug=debug)
 
 

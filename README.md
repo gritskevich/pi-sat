@@ -23,13 +23,13 @@ mpc update
 
 ## Voice commands (active intents)
 
-French (default, `HAILO_STT_LANGUAGE=fr`):
+French (default, `LANGUAGE=fr`):
 - Play: `joue <titre/artiste>`
 - Stop: `arrête` / `stop`
 - Volume up: `plus fort` / `monte le volume`
 - Volume down: `moins fort` / `baisse le volume`
 
-English (optional, `HAILO_STT_LANGUAGE=en`):
+English (optional, `LANGUAGE=en`):
 - `play <song>`, `stop`, `louder`, `quieter`
 
 To enable more intents, edit `ACTIVE_INTENTS` in `modules/intent_engine.py`.

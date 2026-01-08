@@ -6,10 +6,14 @@ All dependencies are mocked - no real audio hardware required.
 """
 
 import unittest
+import json
+from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch
 from modules.command_processor import CommandProcessor
 from modules.interfaces import Intent
 from modules.command_validator import ValidationResult
+import json
+from pathlib import Path
 from modules.music_resolver import MusicResolution
 
 
@@ -42,7 +46,11 @@ class TestCommandProcessor(unittest.TestCase):
         self.mock_intent_engine.classify.return_value = self.default_intent
 
         # Configure MPD default response (success, message, confidence)
-        self.mock_mpd.play.return_value = (True, "Playing maman", 0.9)
+        responses = json.loads(
+            Path(__file__).resolve().parent.parent.joinpath("resources/response_library.json").read_text(encoding="utf-8")
+        )
+        playing_song = responses["fr"]["playing_song"][0].format(song="maman")
+        self.mock_mpd.play.return_value = (True, playing_song, 0.9)
 
         # Configure MPD music library (needed for MusicResolver)
         mock_music_library = Mock()
@@ -50,13 +58,18 @@ class TestCommandProcessor(unittest.TestCase):
         self.mock_mpd.get_music_library.return_value = mock_music_library
 
         # Configure TTS default response template
-        self.mock_tts.get_response_template.return_value = "Playing maman"
+        self.mock_tts.get_response_template.return_value = playing_song
         self.mock_tts.speak.return_value = True
+
+        response_library = json.loads(
+            Path(__file__).resolve().parent.parent.joinpath("resources/response_library.json").read_text(encoding="utf-8")
+        )
+        validator_message = response_library["fr"]["playing_song"][0].format(song="maman")
 
         # Configure command validator to always validate successfully
         self.mock_validator = Mock()
         self.mock_validator.validate.return_value = ValidationResult.valid(
-            message="D'accord, je joue maman",
+            message=validator_message,
             params={'query': 'maman'},
             confidence=0.9
         )
