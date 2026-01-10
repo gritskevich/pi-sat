@@ -228,11 +228,12 @@ STT_REBUILD_THRESHOLD = 2           # Consecutive failures
 
 **Process**:
 1. Clean text (remove "Alexa", normalize hyphens)
-2. Fast path: regex for stop/volume (instant)
-3. Fuzzy matching: trigger phrases
-4. Phonetic matching: FONEM algorithm
-5. Combine scores: 40% text + 60% phonetic
-6. Extract parameters (song name, volume level, etc.)
+2. Guard rails (narrow overrides for known collisions)
+3. Fast path: regex for stop/volume (instant)
+4. Fuzzy matching: trigger phrases
+5. Phonetic matching: FONEM algorithm
+6. Combine scores: 40% text + 60% phonetic
+7. Extract parameters (song name, volume level, etc.)
 
 **Matching Strategy**:
 ```
@@ -251,6 +252,7 @@ Intent: play_music, query="frozen", confidence=0.88
 - `play_music`: requires "joue|mets|lance" keywords
 - `pause`: excludes "joue|mets|lance" keywords
 - Prevents "arrête de jouer" → pause (should be stop)
+ - Guard rails: `minuteur|minuterie|dans <N> minutes` → `set_sleep_timer`, `plus bas` → `volume_down`
 
 **Config**:
 ```python
@@ -264,6 +266,16 @@ INTENT_MATCHERS = 'text,phonetic'
 ### 5. Command Validation
 
 **Module**: `modules/command_validator.py`
+
+**Interaction Logging**:
+- Appends a JSONL record for each STT → intent decision.
+- Path: `logs/intent_log.jsonl` (override via `INTERACTION_LOG_PATH`).
+- Includes text, intent, confidence, language, and matched file (if play_music).
+ - Disable via `INTERACTION_LOGGER=none`.
+
+**Log Outputs**:
+- Configure console/file outputs with `LOG_OUTPUTS=stdout,stderr,file`.
+- File path via `LOG_FILE_PATH` (default `logs/pisat.log`).
 
 **Process**:
 1. Check intent type

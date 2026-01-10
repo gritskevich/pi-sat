@@ -1,5 +1,6 @@
 import logging
-import sys
+
+from modules.logging_handlers import build_handlers
 
 def setup_logger(name, debug=False, verbose=True):
     """
@@ -29,16 +30,15 @@ def setup_logger(name, debug=False, verbose=True):
     # Prevent double logging via root logger
     logger.propagate = False
 
-    if verbose:
-        handler = logging.StreamHandler(sys.stdout)
-        # ISO 8601 format with milliseconds: 2025-12-19 15:45:32,123
-        # Best practice for production systems and distributed tracing
+    handlers = build_handlers(verbose=verbose)
+    if handlers:
         formatter = logging.Formatter(
             fmt='%(asctime)s [%(levelname)-8s] %(name)s: %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
+        for handler in handlers:
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
 
     return logger
 

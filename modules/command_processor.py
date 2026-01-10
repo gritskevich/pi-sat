@@ -5,6 +5,7 @@ from modules.interfaces import Intent
 import config
 from modules.music_resolver import MusicResolver
 from modules.command_validator import CommandValidator
+from modules.interaction_logger import append_interaction
 
 logger = setup_logger(__name__)
 
@@ -84,6 +85,15 @@ class CommandProcessor:
 
             if not intent:
                 log_warning(self.logger, "⚠️  No intent matched")
+                append_interaction(
+                    getattr(config, "INTERACTION_LOG_PATH", ""),
+                    {
+                        "text": text,
+                        "intent": None,
+                        "intent_confidence": 0.0,
+                        "language": getattr(self.intent_engine, "language", getattr(config, "LANGUAGE", "fr")),
+                    }
+                )
                 error_msg = self.tts.get_response_template('unknown')
                 self.tts.speak(error_msg)
                 return False
@@ -92,6 +102,19 @@ class CommandProcessor:
 
             # Step 4: Validate command
             validation = self.validator.validate(intent)
+
+            log_payload = {
+                "text": text,
+                "intent": intent.intent_type,
+                "intent_confidence": intent.confidence,
+                "language": intent.language,
+                "validated": validation.is_valid,
+            }
+            params = validation.validated_params or {}
+            if intent.intent_type == "play_music":
+                log_payload["query"] = params.get("query") or intent.parameters.get("query")
+                log_payload["matched_file"] = params.get("matched_file")
+            append_interaction(getattr(config, "INTERACTION_LOG_PATH", ""), log_payload)
 
             if not validation.is_valid:
                 # Validation failed - speak feedback and return
