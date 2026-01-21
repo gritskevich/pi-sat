@@ -3,7 +3,7 @@
 **Offline voice music player for kids** | Raspberry Pi 5 + Hailo-8L
 
 ```
-Wake ("Alexa") → Record (VAD) → STT (Hailo Whisper) → Intent → MPD → TTS (Piper)
+Wake ("Coucou Eris") → Record (VAD) → STT (Hailo Whisper) → Intent → MPD → TTS (Piper)
 ```
 
 ## Fast Commands

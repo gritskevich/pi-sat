@@ -29,7 +29,7 @@ WAKE_SOUND_PATH = _env_str('WAKE_SOUND_PATH', f'{PROJECT_ROOT}/resources/beep-sh
 WAKE_SOUND_SKIP_SECONDS = _env_float('WAKE_SOUND_SKIP', 0.0)
 
 # Wake word
-WAKE_WORD_MODELS = ['alexa_v0.1']
+WAKE_WORD_MODELS = [f'{PROJECT_ROOT}/resources/wakewords/coucou_eris.onnx']
 INFERENCE_FRAMEWORK = 'onnx'
 WAKE_WORD_THRESHOLD = _env_float('WAKE_WORD_THRESHOLD', 0.14)
 WAKE_WORD_MIN_CONSECUTIVE = _env_int('WAKE_WORD_MIN_CONSECUTIVE', 3)
