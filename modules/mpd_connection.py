@@ -20,12 +20,10 @@ except ImportError:
     MPDClient = None
     MPDConnectionError = Exception
 
-from modules.logging_utils import setup_logger
-
-logger = setup_logger(__name__)
+from modules.base_module import BaseModule
 
 
-class MPDConnection:
+class MPDConnection(BaseModule):
     """
     MPD connection lifecycle manager.
 
@@ -38,7 +36,9 @@ class MPDConnection:
         host: str = "localhost",
         port: int = 6600,
         timeout: int = 10,
-        debug: bool = False
+        debug: bool = False,
+        verbose: bool = True,
+        event_bus=None,
     ):
         """
         Initialize MPD connection manager.
@@ -52,10 +52,10 @@ class MPDConnection:
         if MPDClient is None:
             raise RuntimeError("python-mpd2 is not installed; MPD control unavailable")
 
+        super().__init__(__name__, debug=debug, verbose=verbose, event_bus=event_bus)
         self.host = host
         self.port = port
         self.timeout = timeout
-        self.debug = debug
 
         # Connection state
         self._client: Optional[MPDClient] = MPDClient()
@@ -63,7 +63,7 @@ class MPDConnection:
         self._connected = False
 
         if debug:
-            logger.setLevel(logging.DEBUG)
+            self.logger.setLevel(logging.DEBUG)
 
     @property
     def client(self) -> MPDClient:
@@ -99,17 +99,17 @@ class MPDConnection:
                 except (MPDConnectionError, ConnectionError) as conn_err:
                     # Handle "Already connected" case
                     if "Already connected" in str(conn_err):
-                        logger.debug("MPD client already connected, reusing connection")
+                        self.logger.debug("MPD client already connected, reusing connection")
                     else:
                         raise  # Re-raise other connection errors
 
                 self._connected = True
-                logger.info(f"Connected to MPD at {self.host}:{self.port}")
+                self.logger.info(f"Connected to MPD at {self.host}:{self.port}")
 
             return True
 
         except Exception as e:
-            logger.error(f"Failed to connect to MPD at {self.host}:{self.port}: {e}")
+            self.logger.error(f"Failed to connect to MPD at {self.host}:{self.port}: {e}")
             self._connected = False
             return False
 
@@ -120,9 +120,9 @@ class MPDConnection:
                 self._client.close()
                 self._client.disconnect()
                 self._connected = False
-                logger.info("Disconnected from MPD")
+                self.logger.info("Disconnected from MPD")
         except Exception as e:
-            logger.warning(f"Error disconnecting from MPD: {e}")
+            self.logger.warning(f"Error disconnecting from MPD: {e}")
             self._connected = False  # Force disconnect flag even if cleanup failed
 
     @contextmanager
@@ -148,7 +148,7 @@ class MPDConnection:
         except (MPDConnectionError, ConnectionError, OSError) as e:
             # Only reconnect if we were previously connected (avoid double reconnect)
             if self._connected:
-                logger.warning(f"MPD connection lost: {e}. Reconnecting...")
+                self.logger.warning(f"MPD connection lost: {e}. Reconnecting...")
                 self._connected = False
                 self.connect()
             raise  # Let caller retry if needed
@@ -165,7 +165,7 @@ class MPDConnection:
                 self._client.ping()
             return True
         except Exception as e:
-            logger.debug(f"MPD ping failed: {e}")
+            self.logger.debug(f"MPD ping failed: {e}")
             return False
 
     def __del__(self):

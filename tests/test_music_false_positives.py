@@ -10,7 +10,12 @@ import os
 import tempfile
 import shutil
 from pathlib import Path
+
 from modules.music_library import MusicLibrary
+from tests.utils.fixture_loader import load_fixture
+
+
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "music_false_positive_cases.json"
 
 
 class TestMusicFalsePositives(unittest.TestCase):
@@ -18,21 +23,12 @@ class TestMusicFalsePositives(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
+        self.fixture = load_fixture(FIXTURE_PATH)
         # Create temporary music library
         self.test_dir = tempfile.mkdtemp()
 
         # Create realistic test music files
-        self.test_songs = [
-            "Louane - maman.mp3",
-            "Stromae - Alors on danse.mp3",
-            "Vicetone, Tony Igy - Astronomia.mp3",
-            "MIKA - Grace Kelly.mp3",
-            "Nemo - The Code.mp3",
-            "All For Metal - Gods of Metal.mp3",
-            "Grand Corps Malade, Camille Lellouche - Mais je t'aime.mp3",
-            "Éric Serra - Deep Blue Dream.mp3",
-            "Début De Soirée - Nuit de folie.mp3",
-        ]
+        self.test_songs = self.fixture["songs"]
 
         for song_path in self.test_songs:
             full_path = os.path.join(self.test_dir, song_path)
@@ -54,19 +50,7 @@ class TestMusicFalsePositives(unittest.TestCase):
 
     def test_reject_unrelated_commands(self):
         """Test: Non-music commands should be rejected"""
-        unrelated_queries = [
-            'turn off the lights',
-            'what time is it',
-            'call mom',
-            'open the door',
-            'increase temperature',
-            'bonjour comment ça va',
-            'ferme la porte',
-            'quelle heure est-il',
-            'allume la lumière',
-        ]
-
-        for query in unrelated_queries:
+        for query in self.fixture["unrelated_queries"]:
             result = self.library.search(query)
             self.assertIsNone(
                 result,
@@ -75,48 +59,32 @@ class TestMusicFalsePositives(unittest.TestCase):
 
     def test_accept_music_queries(self):
         """Test: Real music queries should still match"""
-        music_queries = [
-            ('astronomia', 'Astronomia'),
-            ('stromae', 'Stromae'),
-            ('louane mama', 'Louane'),
-            ('mika', 'MIKA'),
-            ('grace kelly', 'Grace Kelly'),
-        ]
-
-        for query, expected_song in music_queries:
-            result = self.library.search(query)
+        for case in self.fixture["music_queries"]:
+            result = self.library.search(case["query"])
             self.assertIsNotNone(
                 result,
-                f"Music query '{query}' should match something"
+                f"Music query '{case['query']}' should match something"
             )
             file_path, confidence = result
             self.assertIn(
-                expected_song,
+                case["expect_contains"],
                 file_path,
-                f"Query '{query}' should match '{expected_song}', got '{file_path}'"
+                f"Query '{case['query']}' should match '{case['expect_contains']}', got '{file_path}'"
             )
 
     def test_accept_stt_errors(self):
         """Test: Common STT errors should still match songs"""
-        stt_errors = [
-            ('astronomie', 'Astronomia'),  # French spelling
-            ('astronomie à', 'Astronomia'),  # With filler word
-            ('alors on dance', 'Alors on danse'),  # English spelling
-            ('nuit de foli', 'Nuit de folie'),  # Missing silent 'e'
-            ('eric serra deep blue', 'Deep Blue Dream'),  # Accent removed
-        ]
-
-        for query, expected_song in stt_errors:
-            result = self.library.search(query)
+        for case in self.fixture["stt_errors"]:
+            result = self.library.search(case["query"])
             self.assertIsNotNone(
                 result,
-                f"STT error '{query}' should still match"
+                f"STT error '{case['query']}' should still match"
             )
             file_path, confidence = result
             self.assertIn(
-                expected_song,
+                case["expect_contains"],
                 file_path,
-                f"Query '{query}' should match '{expected_song}', got '{file_path}'"
+                f"Query '{case['query']}' should match '{case['expect_contains']}', got '{file_path}'"
             )
 
     def test_threshold_effectiveness(self):

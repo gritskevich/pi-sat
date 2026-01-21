@@ -3,46 +3,53 @@ Intent engine tests (active intents only).
 """
 
 import unittest
+from pathlib import Path
 
 from modules.intent_engine import IntentEngine, Intent
+from tests.utils.fixture_loader import load_fixture
+
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 class TestIntentEngine(unittest.TestCase):
     def setUp(self):
         self.engine_en = IntentEngine(fuzzy_threshold=50, language='en', debug=False)
+        self.fixtures = load_fixture(FIXTURES_DIR / "intent_smoke_cases_en.json")
 
     def test_play_music_basic(self):
-        intent = self.engine_en.classify("play maman")
-        self.assertIsNotNone(intent)
-        self.assertEqual(intent.intent_type, 'play_music')
-        self.assertEqual(intent.parameters.get('query'), 'maman')
-
-    def test_stop_command(self):
-        for command in ['stop music', 'stop playing']:
-            with self.subTest(command=command):
-                intent = self.engine_en.classify(command)
+        for case in self.fixtures["play_music"]:
+            with self.subTest(text=case["text"]):
+                intent = self.engine_en.classify(case["text"])
                 self.assertIsNotNone(intent)
-                self.assertEqual(intent.intent_type, 'stop')
+                self.assertEqual(intent.intent_type, 'play_music')
+                self.assertEqual(intent.parameters.get('query'), case.get("query"))
+
+    def test_pause_command(self):
+        for case in self.fixtures["pause"]:
+            with self.subTest(command=case["text"]):
+                intent = self.engine_en.classify(case["text"])
+                self.assertIsNotNone(intent)
+                self.assertEqual(intent.intent_type, 'pause')
 
     def test_volume_up(self):
-        for command in ['louder', 'volume up', 'turn it up']:
-            with self.subTest(command=command):
-                intent = self.engine_en.classify(command)
+        for case in self.fixtures["volume_up"]:
+            with self.subTest(command=case["text"]):
+                intent = self.engine_en.classify(case["text"])
                 self.assertIsNotNone(intent)
                 self.assertEqual(intent.intent_type, 'volume_up')
 
     def test_volume_down(self):
-        for command in ['quieter', 'volume down', 'turn it down']:
-            with self.subTest(command=command):
-                intent = self.engine_en.classify(command)
+        for case in self.fixtures["volume_down"]:
+            with self.subTest(command=case["text"]):
+                intent = self.engine_en.classify(case["text"])
                 self.assertIsNotNone(intent)
                 self.assertEqual(intent.intent_type, 'volume_down')
 
     def test_fuzzy_typos(self):
-        test_cases = ["pley maman", "volum up", "stp music"]
-        for command in test_cases:
-            with self.subTest(command=command):
-                intent = self.engine_en.classify(command)
+        for case in self.fixtures["fuzzy_typos"]:
+            with self.subTest(command=case["text"]):
+                intent = self.engine_en.classify(case["text"])
                 if intent:
                     self.assertIsInstance(intent, Intent)
 
@@ -53,36 +60,34 @@ class TestIntentEngine(unittest.TestCase):
                 self.assertIsNone(intent)
 
     def test_no_match(self):
-        intent = self.engine_en.classify("tell me a joke")
-        self.assertIsNone(intent)
-
-    def test_case_insensitive(self):
-        commands = ["PLAY MAMAN", "Play maman", "play maman", "pLaY mAmAn"]
-        for command in commands:
-            with self.subTest(command=command):
-                intent = self.engine_en.classify(command)
-                self.assertIsNotNone(intent)
-                self.assertEqual(intent.intent_type, 'play_music')
+        for case in self.fixtures["no_match"]:
+            with self.subTest(text=case["text"]):
+                intent = self.engine_en.classify(case["text"])
+                self.assertIsNone(intent)
 
 
 class TestIntentEngineFrench(unittest.TestCase):
     def setUp(self):
         self.engine_fr = IntentEngine(fuzzy_threshold=50, language='fr', debug=False)
+        self.fixtures = load_fixture(FIXTURES_DIR / "intent_smoke_cases_fr.json")
 
     def test_play_music_basic_fr(self):
-        intent = self.engine_fr.classify("joue maman")
-        self.assertIsNotNone(intent)
-        self.assertEqual(intent.intent_type, 'play_music')
-        self.assertEqual(intent.parameters.get('query'), 'maman')
+        for case in self.fixtures["play_music"]:
+            with self.subTest(text=case["text"]):
+                intent = self.engine_fr.classify(case["text"])
+                self.assertIsNotNone(intent)
+                self.assertEqual(intent.intent_type, 'play_music')
+                self.assertEqual(intent.parameters.get('query'), case.get("query"))
 
     def test_volume_commands_fr(self):
-        cases = [
-            ("plus fort", "volume_up"),
-            ("moins fort", "volume_down"),
-            ("arrete la musique", "stop"),
-        ]
-        for command, expected_intent in cases:
-            with self.subTest(command=command):
-                intent = self.engine_fr.classify(command)
+        for case in self.fixtures["volume"]:
+            with self.subTest(command=case["text"]):
+                intent = self.engine_fr.classify(case["text"])
                 self.assertIsNotNone(intent)
-                self.assertEqual(intent.intent_type, expected_intent)
+                self.assertEqual(intent.intent_type, case["intent"])
+
+        for case in self.fixtures["pause"]:
+            with self.subTest(command=case["text"]):
+                intent = self.engine_fr.classify(case["text"])
+                self.assertIsNotNone(intent)
+                self.assertEqual(intent.intent_type, case["intent"])

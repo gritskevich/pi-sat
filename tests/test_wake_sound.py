@@ -20,4 +20,3 @@ def test_orchestrator_delegates_with_skip_seconds():
 
     # Command processor called with no parameters (creates fresh stream internally)
     command_processor.process_command.assert_called_once_with()
-

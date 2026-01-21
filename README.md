@@ -21,18 +21,21 @@ mpc update
 ./pi-sat.sh run
 ```
 
+`pi-sat.sh` is a thin dispatcher; module scripts live in `scripts/pisat-*.sh`.
+
 ## Voice commands (active intents)
 
 French (default, `LANGUAGE=fr`):
 - Play: `joue <titre/artiste>`
-- Stop: `arrête` / `stop`
+- Pause: `arrête` / `stop`
+- Continue: `continue` / `reprends`
 - Volume up: `plus fort` / `monte le volume`
 - Volume down: `moins fort` / `baisse le volume`
 
 English (optional, `LANGUAGE=en`):
-- `play <song>`, `stop`, `louder`, `quieter`
+- `play <song>`, `pause`, `continue`, `louder`, `quieter`
 
-To enable more intents, edit `ACTIVE_INTENTS` in `modules/intent_engine.py`.
+To enable more intents, edit `ACTIVE_INTENTS` in `config.py`.
 
 ## Docs
 

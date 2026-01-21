@@ -53,7 +53,6 @@ class MPDController:
         self,
         host: str = None,
         port: int = None,
-        music_library: str = None,  # DEPRECATED: Use music_library_instance instead
         music_library_instance: 'MusicLibrary' = None,  # NEW: Inject MusicLibrary
         mpd_connection: 'MPDConnection' = None,  # NEW: Inject MPDConnection
         sleep_timer: 'SleepTimer' = None,  # NEW: Inject SleepTimer
@@ -65,7 +64,6 @@ class MPDController:
         Args:
             host: MPD server host (default: from config) - only used if mpd_connection not provided
             port: MPD server port (default: from config) - only used if mpd_connection not provided
-            music_library: Music library path (default: from config) - DEPRECATED, use music_library_instance
             music_library_instance: Pre-configured MusicLibrary instance (recommended for dependency injection)
             mpd_connection: Pre-configured MPDConnection instance (recommended for dependency injection)
             sleep_timer: Pre-configured SleepTimer instance (recommended for dependency injection)
@@ -100,9 +98,8 @@ class MPDController:
             self._music_library = music_library_instance
         else:
             # Fallback: create internally
-            music_library = music_library or config.MUSIC_LIBRARY
             self._music_library = MusicLibrary(
-                library_path=music_library,
+                library_path=config.MUSIC_LIBRARY,
                 fuzzy_threshold=config.FUZZY_MATCH_THRESHOLD,
                 phonetic_enabled=True,
                 phonetic_weight=config.PHONETIC_WEIGHT,
@@ -119,6 +116,7 @@ class MPDController:
                 get_volume_callback=None,  # Set later
                 set_volume_callback=None,  # Set later
                 stop_callback=None,  # Set later
+                fade_duration=getattr(config, "SLEEP_TIMER_FADE_DURATION", 30),
                 debug=debug
             )
 

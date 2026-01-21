@@ -1,10 +1,14 @@
 import os
 import sys
 from pathlib import Path
-import config
+
+# Keep tests from writing interaction logs to disk.
+os.environ.setdefault("INTERACTION_LOGGER", "none")
+os.environ.setdefault("INTERACTION_LOG_PATH", "")
 
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+import config
 
 
 def pytest_sessionfinish(session, exitstatus):

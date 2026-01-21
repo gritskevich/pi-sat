@@ -1,0 +1,30 @@
+{
+  "play_music": [
+    {"text": "play maman", "query": "maman"},
+    {"text": "Play maman", "query": "maman"},
+    {"text": "PLAY MAMAN", "query": "maman"},
+    {"text": "play song maman", "query": "song maman"}
+  ],
+  "pause": [
+    {"text": "stop music"},
+    {"text": "stop playing"}
+  ],
+  "volume_up": [
+    {"text": "louder"},
+    {"text": "volume up"},
+    {"text": "turn it up"}
+  ],
+  "volume_down": [
+    {"text": "quieter"},
+    {"text": "volume down"},
+    {"text": "turn it down"}
+  ],
+  "no_match": [
+    {"text": "tell me a joke"}
+  ],
+  "fuzzy_typos": [
+    {"text": "pley maman"},
+    {"text": "volum up"},
+    {"text": "stp music"}
+  ]
+}

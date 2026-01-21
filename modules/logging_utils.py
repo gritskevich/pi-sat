@@ -30,7 +30,7 @@ def setup_logger(name, debug=False, verbose=True):
     # Prevent double logging via root logger
     logger.propagate = False
 
-    handlers = build_handlers(verbose=verbose)
+    handlers = build_handlers(verbose=verbose, debug=debug)
     if handlers:
         formatter = logging.Formatter(
             fmt='%(asctime)s [%(levelname)-8s] %(name)s: %(message)s',

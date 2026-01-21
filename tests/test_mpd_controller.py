@@ -8,8 +8,6 @@ Follows patterns from CLAUDE.md.
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch
-import threading
-import time
 
 import config
 import json
@@ -147,38 +145,6 @@ class TestMPDController(unittest.TestCase):
         self.assertIn(message, self._response_options('fr', 'empty_library'))
         self.assertEqual(confidence, 0.0)
 
-    def test_pause(self):
-        """Test: Pause playback
-
-        Given: Music playing
-        When: pause() called
-        Then: Pauses playback
-        """
-        success, message = self.controller.pause()
-
-        self.assertTrue(success)
-        self.assertIn(message, self._response_options('fr', 'paused'))
-        self.mock_client.pause.assert_called_once_with(1)
-
-    def test_resume(self):
-        """Test: Resume playback
-
-        Given: Music paused
-        When: resume() called
-        Then: Resumes playback
-        """
-        # Set state to paused first
-        self.mock_client.status.return_value = {
-            'state': 'pause',
-            'volume': '50',
-        }
-
-        success, message = self.controller.resume()
-
-        self.assertTrue(success)
-        # resume() calls pause(0) which toggles pause off
-        self.mock_client.pause.assert_called_once_with(0)
-
     def test_stop(self):
         """Test: Stop playback
 
@@ -191,37 +157,6 @@ class TestMPDController(unittest.TestCase):
         self.assertTrue(success)
         self.assertIn(message, self._response_options('fr', 'stopped'))
         self.mock_client.stop.assert_called_once()
-
-    def test_next(self):
-        """Test: Skip to next song
-
-        Given: Music playing
-        When: next() called
-        Then: Skips to next track
-        """
-        success, message = self.controller.next()
-
-        self.assertTrue(success)
-        self.assertIn(message, self._response_options('fr', 'next_song'))
-        self.mock_client.next.assert_called_once()
-
-    def test_previous(self):
-        """Test: Go to previous song
-
-        Given: Music playing
-        When: previous() called
-        Then: Goes to previous track
-        """
-        self.mock_client.status.return_value = {
-            'state': 'play',
-            'volume': '50',
-            'song': '1',
-        }
-        success, message = self.controller.previous()
-
-        self.assertTrue(success)
-        self.assertIn(message, self._response_options('fr', 'previous_song'))
-        self.mock_client.previous.assert_called_once()
 
     @unittest.skip("Volume control moved to VolumeManager")
     def test_volume_up(self):
@@ -470,108 +405,6 @@ class TestMPDController(unittest.TestCase):
 
         self.assertIsNone(result)
 
-    def test_play_favorites(self):
-        """Test: Play favorites playlist
-
-        Given: favorites.m3u exists
-        When: play_favorites() called
-        Then: Loads and plays favorites
-        """
-        success, message = self.controller.play_favorites()
-
-        self.assertTrue(success)
-        self.assertIn(message, self._response_options('fr', 'favorites'))
-        self.mock_client.clear.assert_called_once()
-        self.mock_client.load.assert_called_once_with('favorites')
-        self.mock_client.play.assert_called_once()
-
-    def test_play_favorites_not_found(self):
-        """Test: Play favorites when playlist doesn't exist
-
-        Given: No favorites.m3u
-        When: play_favorites() called
-        Then: Returns error message
-        """
-        self.mock_client.load.side_effect = Exception("Playlist not found")
-
-        success, message = self.controller.play_favorites()
-
-        self.assertFalse(success)
-        self.assertIn(message, self._response_options('fr', 'favorites_missing'))
-
-    def test_add_to_favorites(self):
-        """Test: Add current song to favorites
-
-        Given: Song playing
-        When: add_to_favorites() called
-        Then: Adds song to favorites playlist
-        """
-        success, message = self.controller.add_to_favorites()
-
-        self.assertTrue(success)
-        self.assertIn(message, self._response_options('fr', 'liked'))
-        self.mock_client.playlistadd.assert_called_once_with('favorites', 'test/song.mp3')
-
-    def test_add_to_favorites_no_song(self):
-        """Test: Add to favorites when nothing playing
-
-        Given: No song playing
-        When: add_to_favorites() called
-        Then: Returns error message
-        """
-        self.mock_client.currentsong.return_value = {}
-
-        success, message = self.controller.add_to_favorites()
-
-        self.assertFalse(success)
-        self.assertIn(message, self._response_options('fr', 'no_song_playing'))
-
-    def test_set_sleep_timer(self):
-        """Test: Set sleep timer
-
-        Given: Music playing
-        When: set_sleep_timer(1) called (1 minute for testing)
-        Then: Timer starts
-        """
-        success, message = self.controller.set_sleep_timer(minutes=1)
-
-        self.assertTrue(success)
-        self.assertIn('1 minute', message.lower())
-        self.assertTrue(self.controller._sleep_timer.is_active())
-
-        # Clean up
-        self.controller.cancel_sleep_timer()
-
-    def test_cancel_sleep_timer(self):
-        """Test: Cancel active sleep timer
-
-        Given: Sleep timer running
-        When: cancel_sleep_timer() called
-        Then: Timer cancelled
-        """
-        # Start timer
-        self.controller.set_sleep_timer(minutes=5)
-
-        # Cancel it
-        success = self.controller.cancel_sleep_timer()
-
-        self.assertTrue(success)
-
-        # Wait for thread to finish
-        time.sleep(0.5)
-        self.assertFalse(self.controller._sleep_timer.is_active())
-
-    def test_cancel_sleep_timer_none_active(self):
-        """Test: Cancel when no timer active
-
-        Given: No timer running
-        When: cancel_sleep_timer() called
-        Then: Returns False
-        """
-        success = self.controller.cancel_sleep_timer()
-
-        self.assertFalse(success)
-
     @unittest.skip("Singleton pattern removed")
     def test_singleton_pattern(self):
         """Test: Singleton pattern (one instance only)
@@ -676,26 +509,6 @@ class TestMPDControllerIntegration(unittest.TestCase):
         # Restore
         self.controller.restore_volume()
         self.assertIsNone(self.controller._original_volume)
-
-    def test_favorites_workflow(self):
-        """Test: Favorites workflow
-
-        Given: Song playing
-        When: add_to_favorites() → play_favorites()
-        Then: Adds and plays favorites
-        """
-        # Add current song
-        success1, msg1 = self.controller.add_to_favorites()
-        self.assertTrue(success1)
-
-        # Play favorites
-        success2, msg2 = self.controller.play_favorites()
-        self.assertTrue(success2)
-
-        # Verify calls
-        self.mock_client.playlistadd.assert_called_once()
-        self.mock_client.load.assert_called_once()
-
 
 if __name__ == '__main__':
     unittest.main()

@@ -5,8 +5,14 @@ Validates music query extraction from natural language and catalog matching.
 """
 
 import pytest
+from pathlib import Path
+
 from modules.music_resolver import MusicResolver, MusicResolution
 from modules.music_library import MusicLibrary
+from tests.utils.fixture_loader import load_fixture
+
+
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "music_resolver_cases.json"
 
 
 class TestMusicResolver:
@@ -24,48 +30,20 @@ class TestMusicResolver:
         return MusicResolver(library)
 
     # Query Extraction Tests - French
-    def test_extract_query_french_basic(self, resolver):
-        """Test basic French query extraction: 'joue maman'."""
-        query = resolver.extract_query("joue maman", language="fr")
-        assert query == "maman"
+    def test_extract_query_french(self, resolver):
+        fixture = load_fixture(FIXTURE_PATH)
+        for case in fixture["extract_fr"]:
+            query = resolver.extract_query(case["text"], language="fr")
+            if "query_contains" in case:
+                assert case["query_contains"] in query.lower()
+            else:
+                assert query == case["query"]
 
-    def test_extract_query_french_mets(self, resolver):
-        """Test French 'mets' command."""
-        query = resolver.extract_query("mets frozen", language="fr")
-        assert query == "frozen"
-
-    def test_extract_query_french_je_veux(self, resolver):
-        """Test French 'je veux écouter' command."""
-        query = resolver.extract_query("je veux écouter la reine des neiges", language="fr")
-        assert query == "la reine des neiges"
-
-    def test_extract_query_french_long_phrase(self, resolver):
-        """Test French query with 'de' separator."""
-        query = resolver.extract_query("joue la musique de la reine des neiges", language="fr")
-        # Should extract artist after 'de'
-        assert "la reine des neiges" in query.lower()
-
-    def test_extract_query_french_empty(self, resolver):
-        """Test empty query."""
-        query = resolver.extract_query("", language="fr")
-        assert query == ""
-
-    def test_extract_query_french_no_trigger(self, resolver):
-        """Test French text without trigger words."""
-        query = resolver.extract_query("la reine des neiges", language="fr")
-        # Fallback returns empty string when no trigger words found
-        assert query == ""
-
-    # Query Extraction Tests - English
-    def test_extract_query_english_play(self, resolver):
-        """Test English 'play' command."""
-        query = resolver.extract_query("play frozen", language="en")
-        assert query == "frozen"
-
-    def test_extract_query_english_listen_to(self, resolver):
-        """Test English 'listen to' command."""
-        query = resolver.extract_query("listen to the frozen soundtrack", language="en")
-        assert query == "the frozen soundtrack"
+    def test_extract_query_english(self, resolver):
+        fixture = load_fixture(FIXTURE_PATH)
+        for case in fixture["extract_en"]:
+            query = resolver.extract_query(case["text"], language="en")
+            assert query == case["query"]
 
     # Resolution Tests
     def test_resolve_with_explicit_query(self, resolver, monkeypatch):
@@ -110,15 +88,11 @@ class TestMusicResolver:
         assert result.matched_file is None
 
     # Query Cleaning Tests
-    def test_clean_query_strips_punctuation(self, resolver):
-        """Test query cleaning removes punctuation."""
-        query = resolver._clean_query("frozen!!!", language="fr")
-        assert query == "frozen"
-
-    def test_clean_query_normalizes_spaces(self, resolver):
-        """Test query cleaning normalizes whitespace."""
-        query = resolver._clean_query("la   reine   des   neiges", language="fr")
-        assert query == "la reine des neiges"
+    def test_clean_query(self, resolver):
+        fixture = load_fixture(FIXTURE_PATH)
+        for case in fixture["clean_queries"]:
+            query = resolver._clean_query(case["text"], language="fr")
+            assert query == case["query"]
 
     # Integration with Real Library
     def test_resolve_real_library(self):

@@ -1,0 +1,18 @@
+{
+  "extract_fr": [
+    {"text": "joue maman", "query": "maman"},
+    {"text": "mets frozen", "query": "frozen"},
+    {"text": "je veux écouter la reine des neiges", "query": "la reine des neiges"},
+    {"text": "joue la musique de la reine des neiges", "query_contains": "la reine des neiges"},
+    {"text": "", "query": ""},
+    {"text": "la reine des neiges", "query": ""}
+  ],
+  "extract_en": [
+    {"text": "play frozen", "query": "frozen"},
+    {"text": "listen to the frozen soundtrack", "query": "the frozen soundtrack"}
+  ],
+  "clean_queries": [
+    {"text": "frozen!!!", "query": "frozen"},
+    {"text": "la   reine   des   neiges", "query": "la reine des neiges"}
+  ]
+}

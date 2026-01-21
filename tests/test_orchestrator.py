@@ -32,15 +32,8 @@ class TestOrchestrator(unittest.TestCase):
         self.orchestrator.stop()
 
     def test_wake_word_detection_delegates_to_command_processor(self):
-        self.assertFalse(self.orchestrator.is_processing)
         self.orchestrator._on_wake_word_detected()
-        self.assertFalse(self.orchestrator.is_processing)
         self.assertEqual(len(self.command_processor.calls), 1)
-
-    def test_duplicate_wake_word_ignored_while_processing(self):
-        self.orchestrator.is_processing = True
-        self.orchestrator._on_wake_word_detected()
-        self.assertEqual(len(self.command_processor.calls), 0)
 
     def test_stop_stops_wake_word_listener(self):
         self.orchestrator.stop()

@@ -3,6 +3,7 @@ Tests for factory module (dependency injection).
 """
 
 import pytest
+import os
 from modules.factory import (
     create_music_library,
     create_mpd_controller,
@@ -36,6 +37,8 @@ class TestFactoryComponents:
 
     def test_create_stt_engine(self):
         """Test STT engine creation"""
+        if os.getenv("PISAT_RUN_HAILO_TESTS", "0") != "1":
+            pytest.skip("Set PISAT_RUN_HAILO_TESTS=1 to run STT factory test")
         try:
             stt = create_stt_engine(debug=False)
             assert stt is not None
@@ -93,6 +96,8 @@ class TestOrchestratorFactory:
 
     def test_create_production_orchestrator(self):
         """Test production orchestrator creation (may fail without hardware)"""
+        if os.getenv("PISAT_RUN_HAILO_TESTS", "0") != "1":
+            pytest.skip("Set PISAT_RUN_HAILO_TESTS=1 to run production orchestrator test")
         try:
             orchestrator = create_production_orchestrator()
             assert orchestrator is not None
@@ -103,6 +108,8 @@ class TestOrchestratorFactory:
 
     def test_create_test_command_processor(self):
         """Test test command processor creation"""
+        if os.getenv("PISAT_RUN_HAILO_TESTS", "0") != "1":
+            pytest.skip("Set PISAT_RUN_HAILO_TESTS=1 to run test command processor factory")
         try:
             processor = create_test_command_processor()
             assert processor is not None

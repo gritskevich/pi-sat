@@ -15,6 +15,7 @@ from modules.command_validator import ValidationResult
 import json
 from pathlib import Path
 from modules.music_resolver import MusicResolution
+from modules.event_bus import EventBus
 
 
 class TestCommandProcessor(unittest.TestCase):
@@ -22,6 +23,10 @@ class TestCommandProcessor(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures with mocked dependencies"""
+        # Create event bus for tests
+        self.event_bus = EventBus(debug=False)
+        self.event_bus.start()
+
         # Create mocks for all dependencies
         self.mock_speech_recorder = Mock()
         self.mock_stt = Mock()
@@ -92,10 +97,16 @@ class TestCommandProcessor(unittest.TestCase):
                 mpd_controller=self.mock_mpd,
                 tts_engine=self.mock_tts,
                 volume_manager=self.mock_volume_manager,
+                event_bus=self.event_bus,
                 command_validator=self.mock_validator,
                 debug=True,
                 verbose=False
             )
+
+    def tearDown(self):
+        """Clean up after tests"""
+        if hasattr(self, 'event_bus'):
+            self.event_bus.stop()
 
     def test_initialization(self):
         """Test: CommandProcessor initializes with dependencies"""
@@ -168,52 +179,38 @@ class TestCommandProcessor(unittest.TestCase):
         self.mock_volume_manager.restore_music_volume.assert_called_once()
 
     def test_execute_intent_play_music(self):
-        """Test: Execute play_music intent"""
+        """Test: Execute play_music intent - now publishes event instead of calling MPD directly"""
+        from modules.control_events import EVENT_PLAY_REQUESTED
+        import time
+
         intent = Intent(
             intent_type='play_music',
             confidence=0.95,
-            parameters={'query': 'maman'},
+            parameters={'query': 'maman', 'matched_file': 'maman.mp3'},
             raw_text='play maman'
         )
 
-        self.mock_mpd.play.return_value = (True, "Playing")
+        # Track events published
+        events_received = []
+
+        def track_event(event):
+            events_received.append(event.name)
+
+        self.event_bus.subscribe_all(track_event)
+
         response = self.processor._execute_intent(intent)
 
-        self.mock_mpd.play.assert_called_once_with('maman')
-        self.assertIsNotNone(response)
+        # Wait for event bus to process
+        time.sleep(0.05)
 
-    def test_execute_intent_pause(self):
-        """Test: Execute pause intent"""
-        intent = Intent(
-            intent_type='pause',
-            confidence=0.98,
-            parameters={},
-            raw_text='pause'
-        )
-
-        self.mock_mpd.pause.return_value = (True, "Paused")
-        response = self.processor._execute_intent(intent)
-
-        self.mock_mpd.pause.assert_called_once()
-        self.assertIsNotNone(response)
-
-    def test_execute_intent_next(self):
-        """Test: Execute next intent"""
-        intent = Intent(
-            intent_type='next',
-            confidence=0.97,
-            parameters={},
-            raw_text='skip'
-        )
-
-        self.mock_mpd.next.return_value = (True, "Next track")
-        response = self.processor._execute_intent(intent)
-
-        self.mock_mpd.next.assert_called_once()
-        self.assertIsNotNone(response)
+        # Verify play_requested event was published
+        self.assertIn(EVENT_PLAY_REQUESTED, events_received)
 
     def test_execute_intent_volume_up(self):
-        """Test: Execute volume_up intent"""
+        """Test: Execute volume_up intent - now publishes event instead of calling volume manager directly"""
+        from modules.control_events import EVENT_VOLUME_UP_REQUESTED
+        import time
+
         intent = Intent(
             intent_type='volume_up',
             confidence=0.92,
@@ -221,56 +218,21 @@ class TestCommandProcessor(unittest.TestCase):
             raw_text='louder'
         )
 
-        self.mock_volume_manager.music_volume_up.return_value = (True, "Music volume 70%")
+        # Track events published
+        events_received = []
+
+        def track_event(event):
+            events_received.append(event.name)
+
+        self.event_bus.subscribe_all(track_event)
+
         response = self.processor._execute_intent(intent)
 
-        self.mock_volume_manager.music_volume_up.assert_called_once()
-        self.assertIsNotNone(response)
+        # Wait for event bus to process
+        time.sleep(0.05)
 
-    def test_execute_intent_add_favorite(self):
-        """Test: Execute add_favorite intent"""
-        intent = Intent(
-            intent_type='add_favorite',
-            confidence=0.94,
-            parameters={},
-            raw_text='i love this song'
-        )
-
-        self.mock_mpd.add_to_favorites.return_value = (True, "Added to favorites")
-        response = self.processor._execute_intent(intent)
-
-        self.mock_mpd.add_to_favorites.assert_called_once()
-        self.assertIsNotNone(response)
-
-    def test_execute_intent_sleep_timer(self):
-        """Test: Execute sleep_timer intent"""
-        intent = Intent(
-            intent_type='sleep_timer',
-            confidence=0.90,
-            parameters={'duration_minutes': 30},
-            raw_text='stop in 30 minutes'
-        )
-
-        self.mock_mpd.set_sleep_timer.return_value = (True, "Timer set")
-        response = self.processor._execute_intent(intent)
-
-        self.mock_mpd.set_sleep_timer.assert_called_once_with(30)
-        self.assertIsNotNone(response)
-
-    def test_execute_intent_play_favorites(self):
-        """Test: Execute play_favorites intent"""
-        intent = Intent(
-            intent_type='play_favorites',
-            confidence=0.93,
-            parameters={},
-            raw_text='play my favorites'
-        )
-
-        self.mock_mpd.play_favorites.return_value = (True, "Playing favorites")
-        response = self.processor._execute_intent(intent)
-
-        self.mock_mpd.play_favorites.assert_called_once()
-        self.assertIsNotNone(response)
+        # Verify volume_up_requested event was published
+        self.assertIn(EVENT_VOLUME_UP_REQUESTED, events_received)
 
     def test_execute_intent_unknown(self):
         """Test: Execute unknown intent"""

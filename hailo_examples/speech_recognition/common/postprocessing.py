@@ -3,6 +3,17 @@
 import numpy as np
 import re
 
+try:
+    from modules.logging_utils import setup_logger, log_warning
+except Exception:  # Fallback for standalone use
+    import logging
+    def setup_logger(name, debug=False, verbose=True):
+        return logging.getLogger(name)
+    def log_warning(logger, message):
+        logger.warning(message)
+
+logger = setup_logger(__name__)
+
 
 excluded_tokens = [11, 13]  # Punctuation tokens to exclude from repetition penalty
 
@@ -43,7 +54,7 @@ def temperature_sampling(logits, temperature=0.0):
     logits = logits / temperature
     probs = np.exp(logits) / np.sum(np.exp(logits))  # Softmax
     if np.isnan(probs).any():
-        print("Warning: Probabilities contain NaN values. Falling back to greedy decoding.")
+        log_warning(logger, "Probabilities contain NaN values. Falling back to greedy decoding.")
         return np.argmax(logits)  # Fall back to greedy decoding
     # Ensure probabilities sum to 1
     probs = probs / np.sum(probs)
@@ -54,6 +65,21 @@ def temperature_sampling(logits, temperature=0.0):
 def clean_transcription(transcription):
     # Return empty if no content
     if not transcription or not transcription.strip():
+        return ""
+
+    # Remove Whisper non-speech annotations (hallucinations from training data)
+    # Examples: [Musique], [Bruit de la porte], [Applaudissements], (Musique), *rire*
+    # These come from YouTube subtitles in the training data
+    # Remove bracketed annotations [anything]
+    transcription = re.sub(r'\[[^\]]*\]', '', transcription)
+    # Remove parenthetical annotations (Musique), (Applaudissements)
+    transcription = re.sub(r'\([^)]*\)', '', transcription)
+    # Remove asterisk annotations *musique*, *rire*
+    transcription = re.sub(r'\*[^*]+\*', '', transcription)
+    # Clean up extra whitespace
+    transcription = re.sub(r'\s+', ' ', transcription).strip()
+    # Return empty if only punctuation remains (e.g., "[Bruit]." → ".")
+    if not re.search(r'[a-zA-Z0-9à-ÿÀ-Ÿ]', transcription):
         return ""
     # Split the transcription into sentences using both '.' and '?' as delimiters
     sentences = re.split(r'(?<=[.?])\s+', transcription)

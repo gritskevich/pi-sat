@@ -1,0 +1,16 @@
+{
+  "continue": [
+    {"text": "continue la musique"},
+    {"text": "vas-y continue"},
+    {"text": "vas y continue"},
+    {"text": "reprends la musique"},
+    {"text": "reprends"},
+    {"text": "remets la musique"},
+    {"text": "remets la chanson"},
+    {"text": "relance la musique"},
+    {"text": "on continue"},
+    {"text": "encore s'il te plait"},
+    {"text": "encore s il te plait"},
+    {"text": "tu peux continuer la musique"}
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "songs": [
+    "Louane - maman.mp3",
+    "Louane - Jour 1.mp3",
+    "Kids United - On ecrit sur les murs.mp3",
+    "Stromae - Alors on danse.mp3",
+    "MIKA - Grace Kelly.mp3"
+  ],
+  "search_exact": [
+    {"query": "Louane - maman", "expect_contains": "Louane - maman", "min_confidence": 0.8}
+  ],
+  "search_partial": [
+    {"query": "louane", "expect_contains": "Louane"}
+  ],
+  "search_typo": [
+    {"query": "mamann", "expect_contains": "Louane"}
+  ],
+  "search_artist": [
+    {"query": "kids united", "expect_contains": "Kids United"}
+  ],
+  "no_match": [
+    {"query": "nonexistent song xyz"}
+  ]
+}

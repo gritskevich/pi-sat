@@ -1,0 +1,38 @@
+{
+  "songs": [
+    "Louane - maman.mp3",
+    "Stromae - Alors on danse.mp3",
+    "Vicetone, Tony Igy - Astronomia.mp3",
+    "MIKA - Grace Kelly.mp3",
+    "Nemo - The Code.mp3",
+    "All For Metal - Gods of Metal.mp3",
+    "Grand Corps Malade, Camille Lellouche - Mais je t'aime.mp3",
+    "Eric Serra - Deep Blue Dream.mp3",
+    "Debut De Soiree - Nuit de folie.mp3"
+  ],
+  "unrelated_queries": [
+    "turn off the lights",
+    "what time is it",
+    "call mom",
+    "open the door",
+    "increase temperature",
+    "bonjour comment ca va",
+    "ferme la porte",
+    "quelle heure est-il",
+    "allume la lumiere"
+  ],
+  "music_queries": [
+    {"query": "astronomia", "expect_contains": "Astronomia"},
+    {"query": "stromae", "expect_contains": "Stromae"},
+    {"query": "louane mama", "expect_contains": "Louane"},
+    {"query": "mika", "expect_contains": "MIKA"},
+    {"query": "grace kelly", "expect_contains": "Grace Kelly"}
+  ],
+  "stt_errors": [
+    {"query": "astronomie", "expect_contains": "Astronomia"},
+    {"query": "astronomie a", "expect_contains": "Astronomia"},
+    {"query": "alors on dance", "expect_contains": "Alors on danse"},
+    {"query": "nuit de foli", "expect_contains": "Nuit de folie"},
+    {"query": "eric serra deep blue", "expect_contains": "Deep Blue Dream"}
+  ]
+}

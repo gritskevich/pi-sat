@@ -1,9 +1,12 @@
 import numpy as np
 import pyaudio
 import config
-from .logging_utils import setup_logger, log_info, log_success, log_warning, log_error, log_debug, log_audio
+from .adaptive_silence import AdaptiveSilenceDetector, AdaptiveSilenceConfig
+from .base_module import BaseModule
+from .logging_utils import log_info, log_success, log_warning, log_error, log_debug, log_audio
 from .audio_devices import find_input_device_index
 from .audio_normalizer import AudioNormalizer
+from .alsa_utils import suppress_alsa_errors, suppress_jack_autostart, suppress_stderr
 
 try:
     import webrtcvad  # type: ignore
@@ -18,14 +21,13 @@ class _FallbackVAD:
     def is_speech(self, frame_bytes: bytes, sample_rate: int) -> bool:  # noqa: ARG002
         return True
 
-class SpeechRecorder:
-    def __init__(self, debug=False):
+class SpeechRecorder(BaseModule):
+    def __init__(self, debug: bool = False, verbose: bool = True, event_bus=None):
+        super().__init__(__name__, debug=debug, verbose=verbose, event_bus=event_bus)
         self.frame_duration = config.FRAME_DURATION
         self.silence_threshold = config.SILENCE_THRESHOLD
         self.recording_buffer = []
         self.is_recording = False
-        self.debug = debug
-        self.logger = setup_logger(__name__, debug=debug)
 
         if webrtcvad is None:
             log_warning(self.logger, "webrtcvad not installed - falling back to energy-only VAD")
@@ -43,7 +45,93 @@ class SpeechRecorder:
         else:
             self.normalizer = None
 
-        self.p = pyaudio.PyAudio() if debug else None
+        self._vad_log_counter = 0
+        self.adaptive_silence = None
+        if getattr(config, "ADAPTIVE_SILENCE_ENABLED", False):
+            self.adaptive_silence = AdaptiveSilenceDetector(
+                AdaptiveSilenceConfig(
+                    ambient_alpha=getattr(config, "ADAPTIVE_AMBIENT_ALPHA", 0.2),
+                    silence_ratio=getattr(config, "ADAPTIVE_SILENCE_RATIO", 1.4),
+                    min_silence_rms=getattr(config, "ADAPTIVE_MIN_SILENCE_RMS", 300.0),
+                )
+            )
+
+        suppress_alsa_errors()
+        suppress_jack_autostart()
+        if debug:
+            with suppress_stderr():
+                self.p = pyaudio.PyAudio()
+        else:
+            self.p = None
+
+    def _should_log_vad(self) -> bool:
+        self._vad_log_counter += 1
+        return self.debug and self._vad_log_counter % 25 == 0
+
+    def _get_input_default_rate(self, p: pyaudio.PyAudio, input_index: int | None, fallback: int) -> int:
+        try:
+            with suppress_stderr():
+                if input_index is not None:
+                    info = p.get_device_info_by_index(input_index)
+                else:
+                    info = p.get_default_input_device_info()
+            return int(info.get("defaultSampleRate", fallback))
+        except Exception:
+            return fallback
+
+    def calibrate_ambient(self, seconds: float = 2.0) -> float:
+        if not self.adaptive_silence:
+            return 0.0
+        if seconds <= 0:
+            return 0.0
+
+        import time
+        import pyaudio
+
+        suppress_alsa_errors()
+        suppress_jack_autostart()
+        with suppress_stderr():
+            p = pyaudio.PyAudio()
+
+        stream = None
+        try:
+            input_index = find_input_device_index(getattr(config, "INPUT_DEVICE_NAME", None))
+            rate = self._get_input_default_rate(p, input_index, int(getattr(config, "RATE", 48000)))
+            chunk = int(rate * (config.FRAME_DURATION / 1000.0))
+            with suppress_stderr():
+                stream = p.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=rate,
+                    input=True,
+                    input_device_index=input_index if input_index is not None else None,
+                    frames_per_buffer=chunk
+                )
+
+            rms_values = []
+            end = time.time() + seconds
+            while time.time() < end:
+                data = stream.read(chunk, exception_on_overflow=False)
+                rms = float(np.sqrt(np.mean(np.frombuffer(data, dtype=np.int16).astype(np.float32) ** 2)))
+                rms_values.append(rms)
+
+            if not rms_values:
+                return 0.0
+            ambient = float(np.mean(rms_values))
+            self.adaptive_silence.set_ambient(ambient)
+            log_info(self.logger, f"Ambient calibrated: {ambient:.1f} RMS")
+            return ambient
+        finally:
+            if stream:
+                try:
+                    stream.stop_stream()
+                    stream.close()
+                except Exception:
+                    pass
+            try:
+                p.terminate()
+            except Exception:
+                pass
         
     def process_audio_chunks(self, audio, sample_rate: int) -> bytes:
         if sample_rate != 16000:
@@ -206,35 +294,52 @@ class SpeechRecorder:
 
             frame_duration = config.FRAME_DURATION / 1000.0
 
-            p = pyaudio.PyAudio()
+            suppress_alsa_errors()
+            suppress_jack_autostart()
+            with suppress_stderr():
+                p = pyaudio.PyAudio()
             input_index = find_input_device_index(getattr(config, "INPUT_DEVICE_NAME", None))
 
             rate = target_rate
             chunk = int(rate * frame_duration)
             try:
-                stream = p.open(
-                    format=format,
-                    channels=channels,
-                    rate=rate,
-                    input=True,
-                    input_device_index=input_index if input_index is not None else None,
-                    frames_per_buffer=chunk
-                )
-            except Exception:
-                try:
-                    info = p.get_default_input_device_info()
-                    rate = int(info.get("defaultSampleRate", config.RATE))
-                except Exception:
-                    rate = config.RATE
+                with suppress_stderr():
+                    stream = p.open(
+                        format=format,
+                        channels=channels,
+                        rate=rate,
+                        input=True,
+                        input_device_index=input_index if input_index is not None else None,
+                        frames_per_buffer=chunk
+                    )
+            except Exception as e:
+                if self.debug:
+                    log_debug(self.logger, f"Primary input open failed (index={input_index}, rate={rate}): {e}")
+                rate = self._get_input_default_rate(p, input_index, config.RATE)
                 chunk = int(rate * frame_duration)
-                stream = p.open(
-                    format=format,
-                    channels=channels,
-                    rate=rate,
-                    input=True,
-                    input_device_index=input_index if input_index is not None else None,
-                    frames_per_buffer=chunk
-                )
+                try:
+                    with suppress_stderr():
+                        stream = p.open(
+                            format=format,
+                            channels=channels,
+                            rate=rate,
+                            input=True,
+                            input_device_index=input_index if input_index is not None else None,
+                            frames_per_buffer=chunk
+                        )
+                except Exception as fallback_error:
+                    if self.debug:
+                        log_debug(self.logger, f"Fallback input open failed (index={input_index}, rate={rate}): {fallback_error}")
+                    # Last resort: use default input device (PipeWire/Pulse default)
+                    with suppress_stderr():
+                        stream = p.open(
+                            format=format,
+                            channels=channels,
+                            rate=rate,
+                            input=True,
+                            input_device_index=None,
+                            frames_per_buffer=chunk
+                        )
 
             silence_count = 0
             speech_detected = False
@@ -279,6 +384,14 @@ class SpeechRecorder:
                 except Exception as e:
                     log_warning(self.logger, f"Unexpected VAD error: {e}")
                     is_speech = False
+                if self.adaptive_silence:
+                    rms = float(np.sqrt(np.mean(np.frombuffer(vad_data, dtype=np.int16).astype(np.float32) ** 2)))
+                    is_speech, threshold = self.adaptive_silence.update(rms, is_speech)
+                    if self._should_log_vad():
+                        log_debug(
+                            self.logger,
+                            f"Adaptive silence: rms={rms:.1f} threshold={threshold:.1f} speech={is_speech}"
+                        )
 
                 if is_speech:
                     if not speech_detected:
@@ -289,6 +402,11 @@ class SpeechRecorder:
                     silence_count += 1
 
                 elapsed_time = time.time() - start_time
+                if self._should_log_vad():
+                    log_debug(
+                        self.logger,
+                        f"Silence count: {silence_count}/{silence_frames} (elapsed={elapsed_time:.1f}s)"
+                    )
 
                 if elapsed_time >= min_recording_time and speech_detected and silence_count >= silence_frames:
                     log_audio(self.logger, f"🎤 Recording complete: {elapsed_time:.1f}s ({len(frames)} frames)")

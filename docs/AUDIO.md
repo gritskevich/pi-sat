@@ -17,10 +17,13 @@ All audio (music, TTS, beep) uses the **same master volume**. No more complex la
 ## Outputs (what uses what)
 
 - **Music**: MPD → PulseAudio (`pulse`) @ 100% software volume
-- **TTS**: Piper → `aplay -D pulse` (or `pw-play`) @ 100% volume
-- **Wake beep**: `aplay -D pulse` @ 100% volume
+- **TTS**: Piper → `aplay -D default` → PulseAudio @ 100% volume
+- **Wake beep**: `aplay -D default` → PulseAudio @ 100% volume
 
-**Key**: `config.py` defaults `PIPER_OUTPUT_DEVICE` and `OUTPUT_ALSA_DEVICE` to `pulse`.
+**Note (2026 update)**: Piper outputs raw PCM. When PipeWire is used directly (`pw-play`),
+raw mode is required. If TTS is silent, verify `pw-play --raw` is used in the TTS path.
+
+**Key**: MPD uses `pulse`, TTS/beep use `default` (ALSA → PulseAudio routing).
 
 ## Best Practice: Raspberry Pi 5 + PipeWire
 
@@ -41,10 +44,16 @@ audio_output {
 }
 ```
 
-✅ **Set Pi-Sat outputs to pulse** in `config.py`:
+✅ **Set Pi-Sat outputs** in `config.py`:
 ```python
-PIPER_OUTPUT_DEVICE = 'pulse'
-OUTPUT_ALSA_DEVICE = 'pulse'
+PIPER_OUTPUT_DEVICE = 'default'  # ALSA default → PulseAudio
+OUTPUT_ALSA_DEVICE = 'default'
+```
+
+✅ **Optional: Enable PipeWire noise suppression (KISS)**:
+```bash
+scripts/enable_noise_suppression.sh
+export INPUT_DEVICE_NAME=PiSat-NS
 ```
 
 ✅ **Restart MPD**:
@@ -123,6 +132,13 @@ pactl unload-module module-stream-restore
 
 ## Config Reference
 
+### STT Input Notes (2026 Update)
+
+- Hailo Whisper uses the `whisper-base` model.
+- Input is locked to the dedicated USB Microphone (Generalplus).
+- Keep mic gain around 80-90%; compare near vs far without noise suppression.
+- PipeWire noise suppression is experimental and can break wake word detection.
+
 ### Volume Settings (config.py)
 
 ```python
@@ -135,8 +151,39 @@ MAX_VOLUME = 50     # Kid-safety volume limit (0-100)
 ### Audio Device Settings (config.py)
 
 ```python
-OUTPUT_ALSA_DEVICE = 'pulse'  # Beep output
-PIPER_OUTPUT_DEVICE = 'pulse'  # TTS output
+# Input (Microphone)
+INPUT_DEVICE_NAME = 'USB Microphone'  # Generalplus dedicated mic (better quality)
+                                      # Set to None to use system default
+
+# Output (Speaker)
+OUTPUT_ALSA_DEVICE = 'default'   # Beep output (ALSA default → PulseAudio → Jieli speaker)
+PIPER_OUTPUT_DEVICE = 'default'  # TTS output (ALSA default → PulseAudio → Jieli speaker)
+```
+
+**Note:** The Jieli USB Composite Device has both a speaker AND a built-in microphone.
+We use the separate Generalplus USB Microphone for better audio quality.
+
+### Adaptive Silence (End‑of‑Speech)
+
+If recordings frequently hit max time, enable adaptive silence.
+It tracks ambient RMS and treats low‑energy frames as silence when VAD misfires.
+
+```bash
+export ADAPTIVE_SILENCE_ENABLED=true
+export ADAPTIVE_SILENCE_RATIO=1.4
+export ADAPTIVE_AMBIENT_ALPHA=0.2
+export ADAPTIVE_MIN_SILENCE_RMS=300
+```
+
+Calibration:
+```bash
+python scripts/calibrate_silence.py --seconds 3
+```
+
+Startup calibration (default on):
+```bash
+export STARTUP_CALIBRATION_ENABLED=true
+export STARTUP_CALIBRATION_SECONDS=2
 ```
 
 ## Quick Checks
@@ -145,19 +192,38 @@ PIPER_OUTPUT_DEVICE = 'pulse'  # TTS output
 # 1) Is PulseAudio/PipeWire running?
 pactl info
 
-# 2) List audio sinks
+# 2) List audio sinks (speakers)
 pactl list short sinks
 
-# 3) Is the USB speaker visible?
+# 3) List audio sources (microphones)
+pactl list short sources
+arecord -l
+
+# 4) Is the USB speaker visible?
 aplay -l
 
-# 4) Can PulseAudio play audio?
-aplay -D pulse -q resources/beep-short.wav
+# 5) Can PulseAudio play audio?
+aplay -D default -q resources/beep-short.wav
 
-# 5) Is MPD alive and playing?
+# 6) Test microphone recording
+arecord -d 2 -f cd -t wav /tmp/test.wav && aplay /tmp/test.wav
+
+# 7) Is MPD alive and playing?
 mpc status
 mpc outputs
 mpc listall | head
+```
+
+### Set Correct Microphone
+
+If using Generalplus USB Microphone instead of Jieli built-in mic:
+
+```bash
+# Set as default (temporary)
+pactl set-default-source alsa_input.usb-MUSIC-BOOST_USB_Microphone_MB-306-00.mono-fallback
+
+# Or configure in config.py
+INPUT_DEVICE_NAME = 'USB Microphone'
 ```
 
 ## Choosing the right output device
@@ -195,7 +261,7 @@ If you're not using PulseAudio/PipeWire (unusual), you can point directly to ALS
   - Test: `aplay -D pulse -q resources/beep-short.wav`
 
 - **Double wake triggers**
-  - Increase `THRESHOLD` and/or `WAKE_WORD_COOLDOWN` in `config.py`
+  - Increase `WAKE_WORD_THRESHOLD` and/or `WAKE_WORD_COOLDOWN` in `config.py`
   - Music is now paused during voice input (eliminates feedback)
   - Reduce mic gain
 

@@ -37,6 +37,15 @@ debug_audio/
 benchmark_results*.json
 whisper_comparison_results.json
 
+# Runtime logs
+logs/
+
+# Development files (not for repo)
+.claude/
+experiments/
+TODO.md
+docs/JOURNAL.md
+
 # Audio files - exclude all except wake_word and test_metadata.json
 # Keep: wake_word samples (hand-crafted), test_metadata.json
 # Regenerate with: scripts/generate_*.py

@@ -6,7 +6,6 @@ Tests 10 music commands with "Alexa" wake word.
 """
 
 import os
-import json
 import pytest
 from pathlib import Path
 
@@ -14,6 +13,7 @@ import config
 RUN_HAILO_TESTS = os.getenv("PISAT_RUN_HAILO_TESTS", "0") == "1"
 RUN_HAILO_BACKEND = config.STT_BACKEND == "hailo"
 from tests.test_utils import read_wav_mono_int16
+from tests.utils.fixture_loader import load_fixture
 
 pytestmark = [
     pytest.mark.skipif(not RUN_HAILO_TESTS, reason="Set PISAT_RUN_HAILO_TESTS=1 for Hailo E2E tests"),
@@ -29,8 +29,7 @@ def _load_suite_or_skip():
     if not METADATA_PATH.exists():
         pytest.skip(f"Missing: {METADATA_PATH}", allow_module_level=True)
 
-    with open(METADATA_PATH, "r", encoding="utf-8") as f:
-        metadata = json.load(f)
+    metadata = load_fixture(METADATA_PATH)
 
     try:
         return metadata["suites"][SUITE_ID]

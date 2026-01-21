@@ -158,7 +158,7 @@ export INPUT_DEVICE_NAME='USB Microphone'
 export PIPER_OUTPUT_DEVICE='plughw:3,0'
 
 # Wake word sensitivity (default: 0.5)
-export THRESHOLD=0.5  # Lower = more sensitive
+export WAKE_WORD_THRESHOLD=0.5  # Lower = more sensitive
 
 # Debug mode
 export PISAT_DEBUG=true
@@ -272,7 +272,7 @@ export OUTPUT_ALSA_DEVICE='plughw:X,0'  # Replace X with card number
 ./pi-sat.sh run_debug
 
 # Adjust sensitivity if needed
-export THRESHOLD=0.3  # Lower = more sensitive (default: 0.5)
+export WAKE_WORD_THRESHOLD=0.3  # Lower = more sensitive (default: 0.5)
 ./pi-sat.sh run
 ```
 

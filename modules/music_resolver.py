@@ -10,6 +10,7 @@ import re
 from typing import Optional
 
 from modules.music_library import MusicLibrary
+from modules.intent_normalization import normalize_text
 
 
 @dataclass
@@ -35,8 +36,9 @@ class MusicResolver:
         file_path, confidence = match
         return MusicResolution(query=query, matched_file=file_path, confidence=confidence)
 
-    def extract_query(self, text: str, language: str = "fr") -> str:
-        text = text.strip()
+    @staticmethod
+    def extract_query(text: str, language: str = "fr") -> str:
+        text = normalize_text(text)
         if not text:
             return ""
 
@@ -53,11 +55,12 @@ class MusicResolver:
 
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            return self._clean_query(match.group(1).strip(), language)
+            return MusicResolver._clean_query(match.group(1).strip(), language)
 
-        return self._fallback_query(text, language)
+        return MusicResolver._fallback_query(text, language)
 
-    def _clean_query(self, query: str, language: str) -> str:
+    @staticmethod
+    def _clean_query(query: str, language: str) -> str:
         query = query.strip().strip(".,!?;:")
         query = re.sub(r"\s+", " ", query)
 
@@ -84,8 +87,9 @@ class MusicResolver:
 
         return query
 
-    def _fallback_query(self, text: str, language: str) -> str:
-        text = text.strip().strip(".,!?;:")
+    @staticmethod
+    def _fallback_query(text: str, language: str) -> str:
+        text = normalize_text(text)
         if not text:
             return ""
 
@@ -99,7 +103,7 @@ class MusicResolver:
             last_match = match
 
         if not last_match:
-            soft_trimmed = self._soft_trim_leading(text, language)
+            soft_trimmed = MusicResolver._soft_trim_leading(text, language)
             return soft_trimmed
 
         tail = text[last_match.end():].strip()
@@ -129,11 +133,11 @@ class MusicResolver:
 
         return tail
 
-    def _soft_trim_leading(self, text: str, language: str) -> str:
+    @staticmethod
+    def _soft_trim_leading(text: str, language: str) -> str:
         if language != "fr":
             return ""
-        cleaned = re.sub(r"[.,!?;:]+", " ", text.lower())
-        tokens = [t for t in cleaned.split() if t]
+        tokens = [t for t in normalize_text(text).split() if t]
         if len(tokens) < 3:
             return ""
         if tokens[0] in ("tu", "je", "j", "j'", "j'ai", "j’ai", "jai"):

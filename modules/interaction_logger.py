@@ -14,10 +14,12 @@ def append_interaction(path: str, payload: Dict[str, Any]) -> None:
     except Exception:
         config = None
 
+    used_default_path = False
     if not path and config is not None:
         path = getattr(config, "INTERACTION_LOG_PATH", "")
+        used_default_path = True
 
-    if config is not None:
+    if used_default_path and config is not None:
         mode = getattr(config, "INTERACTION_LOGGER", "jsonl")
         if mode == "none":
             return

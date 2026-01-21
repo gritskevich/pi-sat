@@ -1,0 +1,266 @@
+{
+  "catalog": [
+    "Blue (Da Ba Dee) - Gabry Ponte Ice Pop Radio.mp3",
+    "Gimme! Gimme! Gimme! (A Man After Midnight).mp3",
+    "Relax, Take It Easy.mp3",
+    "Freed From Desire.mp3",
+    "Believer.mp3",
+    "Crazy.mp3",
+    "Another Day.mp3",
+    "Alone in Kyoto.mp3",
+    "Astronomia.mp3",
+    "Coming Out of the Dark.mp3",
+    "Deep Blue Dream.mp3",
+    "Ghostwriter.mp3",
+    "Heal the World.mp3",
+    "How Does It Make You Feel?.mp3",
+    "Magic in the Air (feat. Ahmed Chawki).mp3",
+    "New Star in the Sky - Vegyn Version.mp3",
+    "Radio Number 1.mp3",
+    "Rim Tim Tagi Dim.mp3",
+    "Royally Rule This World.mp3",
+    "Surfing on a Rocket.mp3"
+  ],
+  "cases": [
+    {
+      "query": "blue daba dee",
+      "expect_file": "Blue (Da Ba Dee) - Gabry Ponte Ice Pop Radio.mp3"
+    },
+    {
+      "query": "bleu dabadie",
+      "expect_file": "Blue (Da Ba Dee) - Gabry Ponte Ice Pop Radio.mp3"
+    },
+    {
+      "query": "blue dabadi s'il te plait ?",
+      "expect_file": "Blue (Da Ba Dee) - Gabry Ponte Ice Pop Radio.mp3"
+    },
+    {
+      "query": "gimme gimme gimme",
+      "expect_file": "Gimme! Gimme! Gimme! (A Man After Midnight).mp3"
+    },
+    {
+      "query": "jimmy jimmy jimmy man after midnight",
+      "expect_file": "Gimme! Gimme! Gimme! (A Man After Midnight).mp3"
+    },
+    {
+      "query": "gimme gimme gimme s'il te plait",
+      "expect_file": "Gimme! Gimme! Gimme! (A Man After Midnight).mp3"
+    },
+    {
+      "query": "relax take it easy",
+      "expect_file": "Relax, Take It Easy.mp3"
+    },
+    {
+      "query": "relaxe teik it izi",
+      "expect_file": "Relax, Take It Easy.mp3"
+    },
+    {
+      "query": "relax take it easy s'il te plait",
+      "expect_file": "Relax, Take It Easy.mp3"
+    },
+    {
+      "query": "freed from desire",
+      "expect_file": "Freed From Desire.mp3"
+    },
+    {
+      "query": "frid from dezaire",
+      "expect_file": "Freed From Desire.mp3"
+    },
+    {
+      "query": "freed from dezire",
+      "expect_file": "Freed From Desire.mp3"
+    },
+    {
+      "query": "believer",
+      "expect_file": "Believer.mp3"
+    },
+    {
+      "query": "be liver",
+      "expect_file": "Believer.mp3"
+    },
+    {
+      "query": "beliveur s'il te plait",
+      "expect_file": "Believer.mp3"
+    },
+    {
+      "query": "crazy",
+      "expect_file": "Crazy.mp3"
+    },
+    {
+      "query": "craizi",
+      "expect_file": "Crazy.mp3"
+    },
+    {
+      "query": "craizy",
+      "expect_file": "Crazy.mp3"
+    },
+    {
+      "query": "another day",
+      "expect_file": "Another Day.mp3"
+    },
+    {
+      "query": "anoter day",
+      "expect_file": "Another Day.mp3"
+    },
+    {
+      "query": "another day s'il te plait",
+      "expect_file": "Another Day.mp3"
+    },
+    {
+      "query": "alone in kyoto",
+      "expect_file": "Alone in Kyoto.mp3"
+    },
+    {
+      "query": "alone in kioto",
+      "expect_file": "Alone in Kyoto.mp3"
+    },
+    {
+      "query": "alon in kyoto",
+      "expect_file": "Alone in Kyoto.mp3"
+    },
+    {
+      "query": "astronomia",
+      "expect_file": "Astronomia.mp3"
+    },
+    {
+      "query": "astronamia",
+      "expect_file": "Astronomia.mp3"
+    },
+    {
+      "query": "astro nomia",
+      "expect_file": "Astronomia.mp3"
+    },
+    {
+      "query": "coming out of the dark",
+      "expect_file": "Coming Out of the Dark.mp3"
+    },
+    {
+      "query": "coming out of the dak",
+      "expect_file": "Coming Out of the Dark.mp3"
+    },
+    {
+      "query": "koming out of the dark",
+      "expect_file": "Coming Out of the Dark.mp3"
+    },
+    {
+      "query": "deep blue dream",
+      "expect_file": "Deep Blue Dream.mp3"
+    },
+    {
+      "query": "dip blue dream",
+      "expect_file": "Deep Blue Dream.mp3"
+    },
+    {
+      "query": "deep blu dream",
+      "expect_file": "Deep Blue Dream.mp3"
+    },
+    {
+      "query": "ghostwriter",
+      "expect_file": "Ghostwriter.mp3"
+    },
+    {
+      "query": "gost writer",
+      "expect_file": "Ghostwriter.mp3"
+    },
+    {
+      "query": "ghost writer s'il te plait",
+      "expect_file": "Ghostwriter.mp3"
+    },
+    {
+      "query": "heal the world",
+      "expect_file": "Heal the World.mp3"
+    },
+    {
+      "query": "hil the world",
+      "expect_file": "Heal the World.mp3"
+    },
+    {
+      "query": "heal ze world",
+      "expect_file": "Heal the World.mp3"
+    },
+    {
+      "query": "how does it make you feel",
+      "expect_file": "How Does It Make You Feel?.mp3"
+    },
+    {
+      "query": "how does it make you fil",
+      "expect_file": "How Does It Make You Feel?.mp3"
+    },
+    {
+      "query": "how does it make you feel s'il te plait",
+      "expect_file": "How Does It Make You Feel?.mp3"
+    },
+    {
+      "query": "magic in the air",
+      "expect_file": "Magic in the Air (feat. Ahmed Chawki).mp3"
+    },
+    {
+      "query": "majik in the air",
+      "expect_file": "Magic in the Air (feat. Ahmed Chawki).mp3"
+    },
+    {
+      "query": "magic in air",
+      "expect_file": "Magic in the Air (feat. Ahmed Chawki).mp3"
+    },
+    {
+      "query": "new star in the sky",
+      "expect_file": "New Star in the Sky - Vegyn Version.mp3"
+    },
+    {
+      "query": "new star in the sky vegyn version",
+      "expect_file": "New Star in the Sky - Vegyn Version.mp3"
+    },
+    {
+      "query": "new star in the sky vejine version",
+      "expect_file": "New Star in the Sky - Vegyn Version.mp3"
+    },
+    {
+      "query": "radio number one",
+      "expect_file": "Radio Number 1.mp3"
+    },
+    {
+      "query": "radio number un",
+      "expect_file": "Radio Number 1.mp3"
+    },
+    {
+      "query": "radio number 1",
+      "expect_file": "Radio Number 1.mp3"
+    },
+    {
+      "query": "rim tim tagi dim",
+      "expect_file": "Rim Tim Tagi Dim.mp3"
+    },
+    {
+      "query": "rim tim tagui dim",
+      "expect_file": "Rim Tim Tagi Dim.mp3"
+    },
+    {
+      "query": "rim tim tagi dimm",
+      "expect_file": "Rim Tim Tagi Dim.mp3"
+    },
+    {
+      "query": "royally rule this world",
+      "expect_file": "Royally Rule This World.mp3"
+    },
+    {
+      "query": "royali rule this world",
+      "expect_file": "Royally Rule This World.mp3"
+    },
+    {
+      "query": "royally rule dis world",
+      "expect_file": "Royally Rule This World.mp3"
+    },
+    {
+      "query": "surfing on a rocket",
+      "expect_file": "Surfing on a Rocket.mp3"
+    },
+    {
+      "query": "surfing on a roquette",
+      "expect_file": "Surfing on a Rocket.mp3"
+    },
+    {
+      "query": "surfing on a rocket s'il te plait",
+      "expect_file": "Surfing on a Rocket.mp3"
+    }
+  ]
+}

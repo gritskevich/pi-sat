@@ -146,7 +146,7 @@ class PiperTTS:
             # ALSA: convert to WAV + resample via sox (NO volume scaling), then aplay
             if self.output_device in ("pulse", "pipewire") and shutil.which("pw-play"):
                 play_proc = subprocess.run(
-                    ["pw-play", "--format", "s16", "--rate", "22050", "--channels", "1", "--volume", "1.0", "-"],
+                    ["pw-play", "--raw", "--format", "s16", "--rate", "22050", "--channels", "1", "--volume", "1.0", "-"],
                     input=raw_audio,
                     capture_output=True,
                     timeout=30
@@ -169,8 +169,9 @@ class PiperTTS:
                         logger.debug(f"Error output: {sox_proc.stderr.decode('utf-8', errors='replace')}")
                     return False
 
+                aplay_device = "default" if self.output_device in ("pipewire", "pulse") else self.output_device
                 play_proc = subprocess.run(
-                    ["aplay", "-D", self.output_device, "-q"],
+                    ["aplay", "-D", aplay_device, "-q"],
                     input=sox_proc.stdout,
                     capture_output=True,
                     timeout=30

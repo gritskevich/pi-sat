@@ -6,6 +6,19 @@ from queue import Queue, Empty
 from threading import Thread
 from common.postprocessing import apply_repetition_penalty
 
+try:
+    from modules.logging_utils import setup_logger, log_info, log_warning
+except Exception:  # Fallback for standalone use
+    import logging
+    def setup_logger(name, debug=False, verbose=True):
+        return logging.getLogger(name)
+    def log_info(logger, message):
+        logger.info(message)
+    def log_warning(logger, message):
+        logger.warning(message)
+
+logger = setup_logger(__name__)
+
 
 class HailoWhisperPipeline:
     """
@@ -85,7 +98,7 @@ class HailoWhisperPipeline:
 
         # If token not found, default to English
         if token_id == self.tokenizer.unk_token_id:
-            print(f"Warning: Language '{self.language}' not found in tokenizer, defaulting to English")
+            log_warning(logger, f"Language '{self.language}' not found in tokenizer, defaulting to English")
             token_id = self.tokenizer.convert_tokens_to_ids("<|en|>")
 
         return token_id
@@ -93,7 +106,7 @@ class HailoWhisperPipeline:
     def _get_token_id(self, token: str) -> int:
         token_id = self.tokenizer.convert_tokens_to_ids(token)
         if token_id == self.tokenizer.unk_token_id:
-            print(f"Warning: Token '{token}' not found in tokenizer; disabling it")
+            log_warning(logger, f"Token '{token}' not found in tokenizer; disabling it")
             return None
         return token_id
 
@@ -134,10 +147,10 @@ class HailoWhisperPipeline:
 
         encoder_hef = HEF(self.encoder_model_path)
         input_audio_length = int(encoder_hef.get_input_vstream_infos()[0].shape[1] / 100)
-        print(
-            f"[HailoWhisper] variant={self.variant} input_len_s={input_audio_length} "
+        log_info(
+            logger,
+            f"HailoWhisper variant={self.variant} input_len_s={input_audio_length} "
             f"decode_len={self.decoding_sequence_length}",
-            flush=True,
         )
 
         with VDevice(params) as vdevice:

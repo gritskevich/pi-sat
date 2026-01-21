@@ -15,7 +15,7 @@ Complete flow from wake word to music playback.
 │  1. WAKE WORD    │  openwakeword (Alexa detection)
 │  Detection       │  ↓ Threshold: 0.01 (very sensitive)
 └────────┬─────────┘  ↓ VAD filter: 0.6
-         │            ↓ Speex noise suppression: ON
+         │            ↓ PipeWire noise suppression: optional
          ↓
     ┌────────────────────────────────────────┐
     │ Wake word detected? ("Alexa")          │
@@ -61,7 +61,7 @@ Complete flow from wake word to music playback.
                                   ↓
                     ┌────────────────────────┐
                     │ Fast path (regex)?     │
-                    │ - stop: arrête         │
+                    │ - pause: arrête        │
                     │ - volume_up: plus fort │
                     │ - volume_down: baisse  │
                     └──┬─────────────────┬───┘
@@ -137,8 +137,7 @@ Complete flow from wake word to music playback.
 2. Resample from 48kHz → 16kHz (if needed)
 3. Feed to openwakeword model (`alexa_v0.1`)
 4. VAD filter (threshold: 0.6)
-5. Speex noise suppression (optional, default: ON)
-6. Periodic model reset (every 60s)
+5. Optional PipeWire noise suppression (audio stack)
 
 **Detection**:
 - Confidence > 0.01 (very sensitive)
@@ -148,11 +147,10 @@ Complete flow from wake word to music playback.
 **Config**:
 ```python
 WAKE_WORD_MODELS = ['alexa_v0.1']
-THRESHOLD = 0.01                    # Wake confidence
-VAD_THRESHOLD = 0.6                 # Voice activity
+WAKE_WORD_THRESHOLD = 0.01                    # Wake confidence
 WAKE_WORD_COOLDOWN = 0.5            # Seconds
-ENABLE_SPEEX_NOISE_SUPPRESSION = True
 ```
+VAD threshold is fixed at 0.6 in the wake word listener (not user-configurable).
 
 ---
 
@@ -166,6 +164,7 @@ ENABLE_SPEEX_NOISE_SUPPRESSION = True
 3. Silence threshold: 1.0s
 4. Max recording: 10.0s (safety)
 5. Normalize RMS to 3000 (if enabled)
+6. Adaptive silence (ambient RMS) to avoid 10s max hits
 
 **Audio Pipeline**:
 ```
@@ -181,6 +180,32 @@ SILENCE_THRESHOLD = 1.0             # Seconds
 MAX_RECORDING_TIME = 10.0           # Seconds
 AUDIO_NORMALIZATION_ENABLED = True
 AUDIO_TARGET_RMS = 3000.0
+ADAPTIVE_SILENCE_ENABLED = True
+ADAPTIVE_SILENCE_RATIO = 1.4
+ADAPTIVE_AMBIENT_ALPHA = 0.2
+ADAPTIVE_MIN_SILENCE_RMS = 300.0
+STARTUP_CALIBRATION_ENABLED = True
+STARTUP_CALIBRATION_SECONDS = 2.0
+```
+
+---
+
+### Physical Buttons (Optional)
+
+**Module**: `modules/usb_button_router.py`
+
+**Flow**:
+- USB HID events → `USBButtonController`
+- Routed to volume + MPD playback
+- Single press: play/pause
+- Double press: next track
+
+**Config**:
+```python
+USB_BUTTON_ENABLED = True
+USB_BUTTON_DEVICE_PATH = "/dev/input/event0"
+USB_BUTTON_DEVICE_FILTER = "USB Audio"  # fallback auto-detect
+USB_BUTTON_DOUBLE_PRESS_WINDOW = 0.4
 ```
 
 ---
@@ -229,7 +254,7 @@ STT_REBUILD_THRESHOLD = 2           # Consecutive failures
 **Process**:
 1. Clean text (remove "Alexa", normalize hyphens)
 2. Guard rails (narrow overrides for known collisions)
-3. Fast path: regex for stop/volume (instant)
+3. Fast path: regex for pause/volume (instant)
 4. Fuzzy matching: trigger phrases
 5. Phonetic matching: FONEM algorithm
 6. Combine scores: 40% text + 60% phonetic
@@ -251,7 +276,7 @@ Intent: play_music, query="frozen", confidence=0.88
 **Collision Prevention**:
 - `play_music`: requires "joue|mets|lance" keywords
 - `pause`: excludes "joue|mets|lance" keywords
-- Prevents "arrête de jouer" → pause (should be stop)
+- Prevents "arrête de jouer" → pause (should be pause)
  - Guard rails: `minuteur|minuterie|dans <N> minutes` → `set_sleep_timer`, `plus bas` → `volume_down`
 
 **Config**:
@@ -448,7 +473,7 @@ Combined: (60 × 0.4) + (100 × 0.6) = 84/100
 **False positives**:
 - Cooldown: 0.5s between detections
 - VAD filter: 0.6 threshold
-- Speex noise suppression
+- PipeWire noise suppression (optional)
 
 ### MPD Errors
 
@@ -494,10 +519,8 @@ RATE = 48000                        # Mic input rate
 SAMPLE_RATE = 16000                 # Processing rate
 
 # Wake word
-THRESHOLD = 0.01                    # Detection sensitivity
-VAD_THRESHOLD = 0.6                 # Voice activity
+WAKE_WORD_THRESHOLD = 0.01                    # Detection sensitivity
 WAKE_WORD_COOLDOWN = 0.5            # Debounce
-ENABLE_SPEEX_NOISE_SUPPRESSION = True
 
 # Recording
 VAD_LEVEL = 2                       # Webrtc aggressiveness
@@ -564,6 +587,42 @@ CPU_STT_MODEL                       # Dev only
 
 ## Flow State Management
 
+### Playback State Machine (DDD, centralized)
+
+Playback state is now managed by `modules/playback_state_machine.py`. It receives neutral events and emits control events:
+- Neutral inputs: `wake_word_detected`, `button_pressed`, `button_double_pressed`, `recording_started`, `recording_finished`
+- Intent + TTS: `intent_ready` followed by `tts_confirmation`
+- Control outputs: `pause_requested`, `continue_requested`, `play_requested`, `next_track_requested`, volume changes, etc.
+
+Key rules:
+- Wake word only pauses if currently playing.
+- Buttons are interpreted by state (toggle play/pause, skip track on double-press).
+- No playback changes while recording.
+- Intent execution only happens after TTS confirmation; no intent → resume if we paused for the interaction.
+
+### Event Taxonomy (KISS)
+
+- **Neutral events**: raw signals, no side effects  
+  `wake_word_detected`, `button_pressed`, `button_double_pressed`, `recording_started`, `recording_finished`, `intent_ready`, `tts_confirmation`
+- **Control events**: explicit playback/volume actions  
+  `pause_requested`, `continue_requested`, `play_requested`, `next_track_requested`, `set_volume_requested`, etc.
+- **Outcome events**: optional acknowledgements from modules (currently minimal)
+
+Event creation uses `modules/control_events.py:new_event(...)` to keep metadata consistent.
+The EventBus enforces an allowed event list by default to prevent typos.
+
+```
+Neutral events            PlaybackStateMachine              Control events
+-------------             --------------------              --------------
+wake_word_detected  --->  pause if playing         --->      pause_requested
+button_pressed      --->  toggle play/pause        --->      pause_requested / continue_requested
+button_double       --->  next track               --->      next_track_requested
+recording_started   --->  lock + pause             --->      pause_requested
+recording_finished  --->  unlock                    ->      (no direct output)
+intent_ready        --->  store intent             --->      (no direct output)
+tts_confirmation    --->  apply intent             --->      play/continue/volume/etc
+```
+
 ### Stream Lifecycle
 
 ```
@@ -629,14 +688,14 @@ PISAT_RUN_HAILO_TESTS=1 pytest      # + E2E tests
 
 ```bash
 export WAKE_WORD_THRESHOLD=0.5      # Less sensitive (default: 0.01)
-export VAD_THRESHOLD=0.7            # Stricter voice detection
 ```
 
 ### Missed Wake Words
 
 ```bash
 export WAKE_WORD_THRESHOLD=0.005    # More sensitive
-export ENABLE_SPEEX=false           # Disable noise suppression
+# If PipeWire noise suppression is enabled, try the raw mic:
+unset INPUT_DEVICE_NAME
 ```
 
 ### Music Not Found

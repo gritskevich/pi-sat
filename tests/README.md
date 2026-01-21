@@ -15,11 +15,18 @@ export PISAT_RUN_HAILO_TESTS=1
 pytest tests/test_language_detection.py -v -s
 pytest tests/test_e2e_french.py -v -s
 pytest tests/test_e2e_french_true.py -v -s
+
+# MPD catalog integration (real library)
+export PISAT_RUN_MPD_TESTS=1
+pytest tests/integration/test_intent_mpd_catalog.py -v -s
 ```
 
 ## Scope
 
 Active intent tests only. Hardware suites run only with the proper env flags.
+Synthetic intent+music cases live in `tests/test_intent_music_synthetic.py`.
+Intent smoke cases are fixture-driven in `tests/fixtures/intent_smoke_cases_*.json`.
+All JSON fixtures are schema-validated in `tests/test_fixture_schemas.py`.
 
 ## Audio Suites (DRY)
 

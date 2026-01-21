@@ -1,6 +1,5 @@
 import os
 import unittest
-import json
 import wave
 from pathlib import Path
 
@@ -8,6 +7,7 @@ import numpy as np
 
 from modules.hailo_stt import HailoSTT
 from tests.test_base import PiSatTestBase
+from tests.utils.fixture_loader import load_fixture
 import config
 
 
@@ -45,7 +45,7 @@ class TestHailoSTTSuite(PiSatTestBase):
         if not metadata_path.exists():
             self.skipTest(f"Missing metadata: {metadata_path}")
 
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata = load_fixture(metadata_path)
         suite = metadata.get("suites", {}).get("e2e_french")
         if not suite:
             self.skipTest("Missing suite: e2e_french")

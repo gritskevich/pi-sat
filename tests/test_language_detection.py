@@ -4,7 +4,6 @@ Hailo STT - French-first language forcing tests (hardware).
 Uses the centralized metadata registry + ElevenLabs E2E French suite.
 """
 
-import json
 import os
 import unittest
 import wave
@@ -14,6 +13,7 @@ import numpy as np
 
 import config
 from modules.hailo_stt import HailoSTT
+from tests.utils.fixture_loader import load_fixture
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -25,7 +25,7 @@ def _load_suite_or_skip() -> dict:
     if not METADATA_PATH.exists():
         raise unittest.SkipTest(f"Missing metadata: {METADATA_PATH}")
 
-    metadata = json.loads(METADATA_PATH.read_text(encoding="utf-8"))
+    metadata = load_fixture(METADATA_PATH)
     suite = metadata.get("suites", {}).get(SUITE_ID)
     if not suite:
         raise unittest.SkipTest(f"Missing suite: {SUITE_ID}")

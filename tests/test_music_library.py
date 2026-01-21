@@ -9,7 +9,12 @@ import os
 import tempfile
 import shutil
 from pathlib import Path
+
 from modules.music_library import MusicLibrary
+from tests.utils.fixture_loader import load_fixture
+
+
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "music_library_cases.json"
 
 
 class TestMusicLibrary(unittest.TestCase):
@@ -17,17 +22,12 @@ class TestMusicLibrary(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
+        self.fixture = load_fixture(FIXTURE_PATH)
         # Create temporary music library
         self.test_dir = tempfile.mkdtemp()
 
         # Create test music files
-        self.test_songs = [
-            "Louane - maman.mp3",
-            "Louane - Jour 1.mp3",
-            "Kids United - On écrit sur les murs.mp3",
-            "Stromae - Alors on danse.mp3",
-            "MIKA - Grace Kelly.mp3",
-        ]
+        self.test_songs = self.fixture["songs"]
 
         for song_path in self.test_songs:
             full_path = os.path.join(self.test_dir, song_path)
@@ -65,49 +65,53 @@ class TestMusicLibrary(unittest.TestCase):
         """Test: Search with exact match"""
         self.library.load_from_filesystem()
 
-        result = self.library.search("Louane - maman")
+        case = self.fixture["search_exact"][0]
+        result = self.library.search(case["query"])
         self.assertIsNotNone(result)
 
         file_path, confidence = result
-        self.assertIn("Louane - maman", file_path)
-        self.assertGreater(confidence, 0.8)
+        self.assertIn(case["expect_contains"], file_path)
+        self.assertGreater(confidence, case["min_confidence"])
 
     def test_search_partial_match(self):
         """Test: Search with partial match"""
         self.library.load_from_filesystem()
 
-        result = self.library.search("louane")
+        case = self.fixture["search_partial"][0]
+        result = self.library.search(case["query"])
         self.assertIsNotNone(result)
 
         file_path, confidence = result
-        self.assertIn("Louane", file_path)
+        self.assertIn(case["expect_contains"], file_path)
 
     def test_search_typo_tolerance(self):
         """Test: Search with typo tolerance"""
         self.library.load_from_filesystem()
 
-        # Typo: "mamann" instead of "maman"
-        result = self.library.search("mamann")
+        case = self.fixture["search_typo"][0]
+        result = self.library.search(case["query"])
         self.assertIsNotNone(result)
 
         file_path, confidence = result
-        self.assertIn("Louane", file_path)
+        self.assertIn(case["expect_contains"], file_path)
 
     def test_search_artist(self):
         """Test: Search by artist name"""
         self.library.load_from_filesystem()
 
-        result = self.library.search("kids united")
+        case = self.fixture["search_artist"][0]
+        result = self.library.search(case["query"])
         self.assertIsNotNone(result)
 
         file_path, confidence = result
-        self.assertIn("Kids United", file_path)
+        self.assertIn(case["expect_contains"], file_path)
 
     def test_search_no_match(self):
         """Test: Search with no match"""
         self.library.load_from_filesystem()
 
-        result = self.library.search("nonexistent song xyz")
+        case = self.fixture["no_match"][0]
+        result = self.library.search(case["query"])
         # Should return None or a low-confidence match
         # Depending on fuzzy threshold, might return None
         if result:

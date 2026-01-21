@@ -15,6 +15,7 @@ Implements dependency injection pattern for:
 Following KISS principle: Simple factory functions, no complex frameworks.
 """
 
+import atexit
 import subprocess
 import config
 from modules.speech_recorder import SpeechRecorder
@@ -28,6 +29,11 @@ from modules.volume_manager import VolumeManager
 from modules.command_processor import CommandProcessor
 from modules.music_library import MusicLibrary
 from modules.logging_utils import setup_logger
+from modules.event_bus import EventBus
+from modules.player_event_router import PlayerEventRouter
+from modules.event_logger import EventLogger
+from modules.music_search_router import MusicSearchRouter
+from modules.playback_state_machine import PlaybackStateMachine
 
 logger = setup_logger(__name__)
 
@@ -69,7 +75,6 @@ def create_music_library(
 def create_mpd_controller(
     host: str = None,
     port: int = None,
-    music_library: str = None,  # DEPRECATED: Use music_library_instance
     music_library_instance: MusicLibrary = None,  # NEW: Inject MusicLibrary
     mpd_connection: MPDConnection = None,  # NEW: Inject MPDConnection
     sleep_timer: SleepTimer = None,  # NEW: Inject SleepTimer
@@ -81,7 +86,6 @@ def create_mpd_controller(
     Args:
         host: MPD host (None for config default)
         port: MPD port (None for config default)
-        music_library: Music library path (None for config default) - DEPRECATED
         music_library_instance: Pre-configured MusicLibrary instance (recommended)
         mpd_connection: Pre-configured MPDConnection instance (optional)
         sleep_timer: Pre-configured SleepTimer instance (optional)
@@ -97,7 +101,7 @@ def create_mpd_controller(
     host = host or config.MPD_HOST
     port = port or config.MPD_PORT
 
-    # Create MusicLibrary if not injected (backward compatible)
+    # Create MusicLibrary if not injected
     if music_library_instance is None:
         music_library_instance = create_music_library(debug=debug)
 
@@ -143,7 +147,7 @@ def create_volume_manager(
     if mpd_controller is None:
         mpd_controller = create_mpd_controller(debug=debug)
 
-    volume_manager = VolumeManager(mpd_controller=mpd_controller)
+    volume_manager = VolumeManager(mpd_controller=mpd_controller, debug=debug)
 
     # Initialize to default volume on startup (from config.MASTER_VOLUME)
     volume_manager.initialize_default_volume(default_volume=config.MASTER_VOLUME)
@@ -233,6 +237,7 @@ def create_command_processor(
     mpd_controller: MPDController = None,
     tts_engine: PiperTTS = None,
     volume_manager: VolumeManager = None,
+    event_bus: EventBus = None,
     debug: bool = False,
     verbose: bool = True
 ) -> CommandProcessor:
@@ -278,9 +283,37 @@ def create_command_processor(
         mpd_controller=mpd_controller,
         tts_engine=tts_engine,
         volume_manager=volume_manager,
+        event_bus=event_bus,
         debug=debug,
         verbose=verbose
     )
+
+
+def create_event_bus(debug: bool = False) -> EventBus:
+    """Create EventBus instance."""
+    return EventBus(debug=debug)
+
+
+def create_player_event_router(
+    event_bus: EventBus,
+    mpd_controller: MPDController,
+    volume_manager: VolumeManager,
+    debug: bool = False
+) -> PlayerEventRouter:
+    """Create router that maps control events to MPD/volume actions."""
+    return PlayerEventRouter(
+        event_bus=event_bus,
+        mpd_controller=mpd_controller,
+        volume_manager=volume_manager,
+        debug=debug
+    )
+
+
+def create_event_logger(debug: bool = False) -> EventLogger:
+    """Create EventLogger instance based on config."""
+    enabled = getattr(config, "EVENT_LOGGER", "jsonl") != "none"
+    path = getattr(config, "EVENT_LOG_PATH", "")
+    return EventLogger(path=path, enabled=enabled)
 
 
 def create_production_orchestrator(debug: bool = False, verbose: bool = True):
@@ -299,12 +332,46 @@ def create_production_orchestrator(debug: bool = False, verbose: bool = True):
     # Import here to avoid circular dependency
     from modules.orchestrator import Orchestrator
 
+    event_bus = create_event_bus(debug=debug)
+
+    # Create MPD + Volume ahead so routers can subscribe
+    mpd_controller = create_mpd_controller(debug=debug)
+    volume_manager = create_volume_manager(mpd_controller=mpd_controller)
+    create_player_event_router(
+        event_bus=event_bus,
+        mpd_controller=mpd_controller,
+        volume_manager=volume_manager,
+        debug=debug
+    )
+    MusicSearchRouter(
+        event_bus=event_bus,
+        music_library=mpd_controller.get_music_library(),
+        debug=debug
+    )
+    PlaybackStateMachine(
+        event_bus=event_bus,
+        mpd_controller=mpd_controller,
+        debug=debug
+    )
+
+    event_logger = create_event_logger(debug=debug)
+    event_bus.subscribe_all(event_logger.log)
+    event_bus.start()
+    atexit.register(event_bus.stop)
+
     # Create command processor with all production dependencies
-    command_processor = create_command_processor(debug=debug, verbose=verbose)
+    command_processor = create_command_processor(
+        mpd_controller=mpd_controller,
+        volume_manager=volume_manager,
+        event_bus=event_bus,
+        debug=debug,
+        verbose=verbose
+    )
 
     # Create orchestrator
     orchestrator = Orchestrator(
         command_processor=command_processor,
+        event_bus=event_bus,
         debug=debug,
         verbose=verbose
     )

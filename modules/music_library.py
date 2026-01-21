@@ -102,6 +102,11 @@ class MusicLibrary:
         catalog = []
         metadata = []
 
+        try:
+            from mutagen import File as MutagenFile  # type: ignore
+        except ModuleNotFoundError:
+            MutagenFile = None
+
         for root, _, files in os.walk(path):
             for file in files:
                 ext = os.path.splitext(file)[1].lower()
@@ -113,7 +118,18 @@ class MusicLibrary:
 
                     catalog.append(rel_path)
                     basename = os.path.splitext(file)[0]
-                    variants = self._build_searchable_variants(basename)
+                    tag_variants = []
+                    if MutagenFile is not None:
+                        try:
+                            tags = MutagenFile(file_path, easy=True)
+                            if tags:
+                                title = self._first_tag(tags, "title")
+                                artist = self._first_tag(tags, "artist")
+                                album_artist = self._first_tag(tags, "albumartist")
+                                tag_variants = self._collect_tag_variants(title, artist, album_artist)
+                        except Exception:
+                            tag_variants = []
+                    variants = self._build_searchable_variants(basename, tag_variants)
                     metadata.append((rel_path, variants))
 
         self._catalog = catalog
@@ -137,8 +153,15 @@ class MusicLibrary:
             Number of songs loaded
         """
         try:
-            # Get all files from MPD
-            all_files = mpd_client.listall()
+            # Get all files from MPD (include tags when available)
+            try:
+                all_files = mpd_client.listallinfo()
+                if not isinstance(all_files, list):
+                    all_files = mpd_client.listall()
+            except Exception:
+                all_files = mpd_client.listall()
+            if not isinstance(all_files, list):
+                all_files = []
 
             catalog = []
             metadata = []
@@ -149,7 +172,11 @@ class MusicLibrary:
 
                     catalog.append(file_path)
                     basename = os.path.splitext(os.path.basename(file_path))[0]
-                    variants = self._build_searchable_variants(basename)
+                    title = item.get('Title') or item.get('title')
+                    artist = item.get('Artist') or item.get('artist')
+                    album_artist = item.get('AlbumArtist') or item.get('albumartist')
+                    tag_variants = self._collect_tag_variants(title, artist, album_artist)
+                    variants = self._build_searchable_variants(basename, tag_variants)
                     metadata.append((file_path, variants))
 
             self._catalog = catalog
@@ -315,6 +342,24 @@ class MusicLibrary:
 
         return (best_file_path, best_score / 100.0)
 
+    def _compute_text_scores(self, query: str, norm_query: str) -> tuple[list[tuple[str, float]], dict[str, list[str]]]:
+        from thefuzz import fuzz
+
+        text_scores: list[tuple[str, float]] = []
+        per_file_variants: dict[str, list[str]] = {}
+        for file_path, variants in self._catalog_metadata:
+            file_best = 0
+            for variant in variants:
+                text_score = max(
+                    fuzz.token_set_ratio(query, variant),
+                    fuzz.token_set_ratio(norm_query, variant),
+                )
+                if text_score > file_best:
+                    file_best = text_score
+            text_scores.append((file_path, file_best))
+            per_file_variants[file_path] = variants
+        return text_scores, per_file_variants
+
     def _search_hybrid(self, query: str) -> Optional[Tuple[str, float]]:
         """
         Hybrid search: combine text fuzzy + phonetic matching.
@@ -342,21 +387,7 @@ class MusicLibrary:
         best_file_path = None
 
         text_weight = 1.0 - self.phonetic_weight
-        text_scores: list[tuple[str, float]] = []
-        per_file_text: dict[str, float] = {}
-        per_file_variants: dict[str, list[str]] = {}
-        for file_path, variants in self._catalog_metadata:
-            file_best = 0
-            for variant in variants:
-                text_score = max(
-                    fuzz.token_set_ratio(query, variant),
-                    fuzz.token_set_ratio(norm_query, variant),
-                )
-                if text_score > file_best:
-                    file_best = text_score
-            per_file_text[file_path] = file_best
-            per_file_variants[file_path] = variants
-            text_scores.append((file_path, file_best))
+        text_scores, per_file_variants = self._compute_text_scores(query, norm_query)
 
         # Only compute phonetics for the most promising text candidates.
         top_candidates = sorted(text_scores, key=lambda item: item[1], reverse=True)[:10]
@@ -391,6 +422,71 @@ class MusicLibrary:
 
         return (best_file_path, confidence)
 
+    def rank_matches(self, query: str, limit: int = 10) -> List[Tuple[str, float]]:
+        """
+        Rank top matches for a query (debug-friendly, does not enforce threshold).
+
+        Returns:
+            List of (file_path, confidence) sorted by score desc.
+        """
+        if not query or not query.strip():
+            return []
+
+        if not self._catalog_metadata:
+            logger.warning("Catalog is empty - call load_from_filesystem() or load_from_mpd() first")
+            return []
+
+        query = query.strip()
+        norm_query = self._normalize_variant(query)
+
+        if not self.phonetic_enabled:
+            return self._rank_text_only(query, norm_query, limit)
+
+        query_phonetic_str = self._phonetic_encoder.encode_query(query)
+        if not query_phonetic_str:
+            return self._rank_text_only(query, norm_query, limit)
+
+        return self._rank_hybrid(query, norm_query, query_phonetic_str, limit)
+
+    def _rank_text_only(self, query: str, norm_query: str, limit: int) -> List[Tuple[str, float]]:
+        text_scores, _ = self._compute_text_scores(query, norm_query)
+        ranked = sorted(text_scores, key=lambda item: item[1], reverse=True)
+        return [(path, score / 100.0) for path, score in ranked[:limit]]
+
+    def _rank_hybrid(
+        self,
+        query: str,
+        norm_query: str,
+        query_phonetic_str: str,
+        limit: int
+    ) -> List[Tuple[str, float]]:
+        from thefuzz import fuzz
+
+        text_scores, per_file_variants = self._compute_text_scores(query, norm_query)
+        text_weight = 1.0 - self.phonetic_weight
+
+        candidate_limit = max(limit, 10)
+        top_candidates = sorted(text_scores, key=lambda item: item[1], reverse=True)[:candidate_limit]
+        candidate_set = {item[0] for item in top_candidates}
+
+        combined_scores = []
+        for file_path, text_score in text_scores:
+            file_best = text_score
+            if file_path in candidate_set:
+                variants = per_file_variants[file_path]
+                for variant in variants:
+                    phonetic_score = 0
+                    phonetic_str = self._phonetic_encoder.encode_pattern(variant)
+                    if phonetic_str:
+                        phonetic_score = fuzz.token_set_ratio(query_phonetic_str, phonetic_str)
+                    combined_score = (text_score * text_weight) + (phonetic_score * self.phonetic_weight)
+                    if combined_score > file_best:
+                        file_best = combined_score
+            combined_scores.append((file_path, file_best))
+
+        ranked = sorted(combined_scores, key=lambda item: item[1], reverse=True)
+        return [(path, score / 100.0) for path, score in ranked[:limit]]
+
     def _add_to_cache(self, key: str, value: Tuple[str, float]) -> None:
         """
         Add item to LRU cache with max size limit.
@@ -411,14 +507,19 @@ class MusicLibrary:
             # Remove oldest item (first item in OrderedDict)
             self._search_best_cache.popitem(last=False)
 
-    def _build_searchable_variants(self, basename: str) -> list[str]:
+    def _build_searchable_variants(self, basename: str, extra_variants: Optional[list[str]] = None) -> list[str]:
         variants = [basename]
-        if " - " in basename:
-            parts = [part.strip() for part in basename.split(" - ") if part.strip()]
-            if parts:
-                variants.extend(parts)
-            if len(parts) > 1:
-                variants.append(" - ".join(parts[1:]))
+        if extra_variants:
+            variants.extend([v for v in extra_variants if v])
+        expanded = []
+        for variant in variants:
+            if " - " in variant:
+                parts = [part.strip() for part in variant.split(" - ") if part.strip()]
+                if parts:
+                    expanded.extend(parts)
+                if len(parts) > 1:
+                    expanded.append(" - ".join(parts[1:]))
+        variants.extend(expanded)
         normalized = [self._normalize_variant(v) for v in variants]
         variants.extend([v for v in normalized if v])
         seen = set()
@@ -428,6 +529,35 @@ class MusicLibrary:
                 seen.add(variant)
                 unique.append(variant)
         return unique
+
+    def _first_tag(self, tags: dict, key: str) -> Optional[str]:
+        values = tags.get(key)
+        if not values:
+            return None
+        if isinstance(values, (list, tuple)):
+            return str(values[0]).strip() if values[0] is not None else None
+        return str(values).strip()
+
+    def _collect_tag_variants(
+        self,
+        title: Optional[str],
+        artist: Optional[str],
+        album_artist: Optional[str]
+    ) -> list[str]:
+        variants: list[str] = []
+        if title:
+            variants.append(title)
+        if artist:
+            variants.append(artist)
+        if album_artist and album_artist != artist:
+            variants.append(album_artist)
+        if title and artist:
+            variants.append(f"{artist} {title}")
+            variants.append(f"{artist} - {title}")
+        if title and album_artist and album_artist != artist:
+            variants.append(f"{album_artist} {title}")
+            variants.append(f"{album_artist} - {title}")
+        return variants
 
     def _normalize_variant(self, text: str) -> str:
         text = text.lower().strip()

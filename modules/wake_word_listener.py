@@ -1,14 +1,42 @@
 import numpy as np
+import sys
 import time
 import config
-from modules.logging_utils import setup_logger, log_info, log_success, log_warning, log_error, log_debug, log_wake
+from modules.base_module import BaseModule
+from modules.logging_utils import log_info, log_success, log_warning, log_error, log_debug, log_wake
 from modules.audio_player import play_wake_sound
-from modules.wake_word_utils import reset_wake_word_model
+from modules.audio_devices import find_input_device_index
+from modules.alsa_utils import suppress_alsa_errors, suppress_jack_autostart, suppress_stderr
+from modules.control_events import ControlEvent, EVENT_WAKE_WORD_DETECTED, EVENT_RECORDING_FINISHED
+
+WAKE_WORD_FRAME_SIZE = 1280  # 80ms @ 16kHz (openwakeword recommendation)
+WAKE_WORD_VAD_THRESHOLD = 0.6
+
+
+def _quiet_import_onnxruntime():
+    """Suppress one-time onnxruntime GPU discovery warning on import."""
+    try:
+        import os
+        import sys
+        fd = sys.stderr.fileno()
+        old_fd = os.dup(fd)
+        with open(os.devnull, 'w') as devnull:
+            os.dup2(devnull.fileno(), fd)
+            try:
+                import onnxruntime  # noqa: F401
+            finally:
+                os.dup2(old_fd, fd)
+                os.close(old_fd)
+    except Exception:
+        # If onnxruntime isn't available, openwakeword will raise a clearer error later.
+        pass
 
 try:
     import pyaudio
 except ModuleNotFoundError:  # optional for non-live/test environments
     pyaudio = None
+
+_quiet_import_onnxruntime()
 
 try:
     from openwakeword.model import Model
@@ -18,8 +46,9 @@ except ModuleNotFoundError:  # optional dependency; required to instantiate
     openwakeword_utils = None
 
 
-class WakeWordListener:
-    def __init__(self, debug=False):
+class WakeWordListener(BaseModule):
+    def __init__(self, debug: bool = False, verbose: bool = True, event_bus=None):
+        super().__init__(__name__, debug=debug, verbose=verbose, event_bus=event_bus)
         if Model is None or openwakeword_utils is None:
             raise RuntimeError(
                 "openwakeword is not installed. Install dependencies via `./pi-sat.sh install` "
@@ -28,19 +57,10 @@ class WakeWordListener:
 
         openwakeword_utils.download_models()
 
-        self.debug = debug
-        self.logger = setup_logger(__name__, debug=debug)
-
-        if config.ENABLE_SPEEX_NOISE_SUPPRESSION:
-            log_info(self.logger, "Speex noise suppression: ENABLED")
-        else:
-            log_info(self.logger, "Speex noise suppression: DISABLED")
-
         self.model = Model(
             wakeword_models=config.WAKE_WORD_MODELS,
             inference_framework=config.INFERENCE_FRAMEWORK,
-            vad_threshold=config.VAD_THRESHOLD,  # Voice Activity Detection (0.6 = balanced, 0.7+ = strict)
-            enable_speex_noise_suppression=config.ENABLE_SPEEX_NOISE_SUPPRESSION
+            vad_threshold=WAKE_WORD_VAD_THRESHOLD,
         )
 
         self.p = None
@@ -50,9 +70,25 @@ class WakeWordListener:
         self.tts_cooldown_end = 0
         self.running = True
         self._heartbeat_counter = 0
-        self._last_model_reset = time.time()
         self._last_debug_log = time.time()
         self._debug_log_interval = 0.5
+        self._above_threshold_counts = {}
+        self._pending_stream_reopen = False
+        self._pending_stream_reopen_at = 0.0
+        if self.event_bus:
+            self.event_bus.subscribe(EVENT_RECORDING_FINISHED, self._on_recording_finished)
+
+    def _on_recording_finished(self, event: ControlEvent):
+        if self.cooldown <= 0:
+            return
+        self.tts_cooldown_end = max(self.tts_cooldown_end, time.time() + self.cooldown)
+        if self._pending_stream_reopen and self.running:
+            self._pending_stream_reopen = False
+            self._pending_stream_reopen_at = 0.0
+            log_debug(self.logger, "Recreating audio stream after command recording...")
+            if not self._recreate_stream():
+                self._pending_stream_reopen = True
+                self._pending_stream_reopen_at = time.time()
 
     def _flush_stream_buffer(self):
         """Drop any buffered audio collected while command processing blocked detection."""
@@ -65,49 +101,98 @@ class WakeWordListener:
                     self.stream.read(available, exception_on_overflow=False)
         except Exception as e:
             log_debug(self.logger, f"Failed to flush stream buffer: {e}")
-        
-    def reset_model_state(self):
-        """Reset wake word model state by feeding it silence."""
-        reset_wake_word_model(self.model)
+
+    def _recreate_stream(self) -> bool:
+        if pyaudio is None:
+            return False
+        stream_recreated = False
+        for retry in range(3):
+            try:
+                time.sleep(0.1 * (retry + 1))  # Increasing backoff
+
+                if self.p is None:
+                    suppress_alsa_errors()
+                    suppress_jack_autostart()
+                    with suppress_stderr():
+                        self.p = pyaudio.PyAudio()
+
+                with suppress_stderr():
+                    self.stream = self.p.open(
+                        format=getattr(pyaudio, config.FORMAT),
+                        channels=config.CHANNELS,
+                        rate=self._input_rate,
+                        input=True,
+                        input_device_index=getattr(self, "_input_device_index", None),
+                        frames_per_buffer=config.CHUNK
+                    )
+
+                self._resample_buf = np.zeros(0, dtype=np.int16)
+                self._flush_stream_buffer()
+
+                log_debug(self.logger, "Audio stream recreated successfully")
+                stream_recreated = True
+                break
+            except Exception as stream_error:
+                if retry < 2:
+                    log_warning(self.logger, f"Stream recreation attempt {retry + 1} failed: {stream_error}, retrying...")
+                else:
+                    log_error(self.logger, f"Stream recreation failed after 3 attempts: {stream_error}")
+
+        if not stream_recreated:
+            log_error(self.logger, "Wake word stream recreation failed; will retry")
+        return stream_recreated
         
     def start_listening(self):
         if pyaudio is None:
             raise RuntimeError("pyaudio is not installed; live listening is unavailable")
 
         if self.p is None:
-            self.p = pyaudio.PyAudio()
+            suppress_alsa_errors()
+            suppress_jack_autostart()
+            with suppress_stderr():
+                self.p = pyaudio.PyAudio()
         target_rate = int(getattr(config, "RATE", 16000))
         model_rate = 16000
         self._resample_buf = np.zeros(0, dtype=np.int16)
+        input_index = find_input_device_index(getattr(config, "INPUT_DEVICE_NAME", None))
+        self._input_device_index = input_index if input_index is not None else None
         try:
-            self.stream = self.p.open(
-                format=getattr(pyaudio, config.FORMAT),
-                channels=config.CHANNELS,
-                rate=target_rate,
-                input=True,
-                input_device_index=None,
-                frames_per_buffer=config.CHUNK
-            )
+            with suppress_stderr():
+                self.stream = self.p.open(
+                    format=getattr(pyaudio, config.FORMAT),
+                    channels=config.CHANNELS,
+                    rate=target_rate,
+                    input=True,
+                    input_device_index=self._input_device_index,
+                    frames_per_buffer=config.CHUNK
+                )
             self._input_rate = target_rate
             time.sleep(0.1)
+            self._flush_stream_buffer()
         except Exception as e:
             log_warning(self.logger, f"Failed to open stream at {target_rate}Hz, trying fallback: {e}")
             try:
-                info = self.p.get_default_input_device_info()
+                with suppress_stderr():
+                    if self._input_device_index is not None:
+                        info = self.p.get_device_info_by_index(self._input_device_index)
+                    else:
+                        info = self.p.get_default_input_device_info()
                 fallback_rate = int(info.get("defaultSampleRate", 16000))
             except Exception as fallback_err:
                 log_warning(self.logger, f"Failed to get default device info: {fallback_err}")
                 fallback_rate = 48000
-            self.stream = self.p.open(
-                format=getattr(pyaudio, config.FORMAT),
-                channels=config.CHANNELS,
-                rate=fallback_rate,
-                input=True,
-                input_device_index=None,
-                frames_per_buffer=config.CHUNK
-            )
+            with suppress_stderr():
+                self.stream = self.p.open(
+                    format=getattr(pyaudio, config.FORMAT),
+                    channels=config.CHANNELS,
+                    rate=fallback_rate,
+                    input=True,
+                    input_device_index=self._input_device_index,
+                    frames_per_buffer=config.CHUNK
+                )
             self._input_rate = fallback_rate
             time.sleep(0.1)
+            self._flush_stream_buffer()
         
         log_info(self.logger, "Wake word listener started...")
 
@@ -116,11 +201,19 @@ class WakeWordListener:
                 self._heartbeat_counter += 1
                 if self._heartbeat_counter % 600 == 0:
                     log_debug(self.logger, f"Wake word listener alive (iterations: {self._heartbeat_counter})")
-                
-                if time.time() - self._last_model_reset > 60.0:
-                    self.reset_model_state()
-                    self._last_model_reset = time.time()
-                    log_debug(self.logger, "Wake word model state reset (60s periodic)")
+
+                if self.stream is None:
+                    if self._pending_stream_reopen:
+                        elapsed = time.time() - self._pending_stream_reopen_at
+                        if elapsed >= 0.5:
+                            log_debug(self.logger, "Retrying wake word stream recreation...")
+                            if self._recreate_stream():
+                                self._pending_stream_reopen = False
+                                self._pending_stream_reopen_at = 0.0
+                            else:
+                                self._pending_stream_reopen_at = time.time()
+                    time.sleep(0.01)
+                    continue
 
                 data = self.stream.read(config.CHUNK, exception_on_overflow=False)
                 audio = np.frombuffer(data, dtype=np.int16)
@@ -137,7 +230,7 @@ class WakeWordListener:
 
                 if audio.size > 0:
                     self._resample_buf = np.concatenate((self._resample_buf, audio))
-                frame_size = 320
+                frame_size = WAKE_WORD_FRAME_SIZE
                 while self._resample_buf.size >= frame_size:
                     frame = self._resample_buf[:frame_size]
                     self._resample_buf = self._resample_buf[frame_size:]
@@ -149,9 +242,8 @@ class WakeWordListener:
                         prediction = self.model.predict(frame)
                     except Exception as pred_error:
                         log_warning(self.logger, f"Model prediction error: {pred_error}")
-                        # Reset and skip this frame
-                        self.reset_model_state()
                         continue
+                    current_time = time.time()
 
                     if self.debug and time.time() - self._last_debug_log >= self._debug_log_interval:
                         confidence_str = ", ".join([f"{ww}: {conf:.3f}" for ww, conf in prediction.items()])
@@ -159,64 +251,63 @@ class WakeWordListener:
                         self._last_debug_log = time.time()
 
                     for wake_word, confidence in prediction.items():
-                        if confidence > config.THRESHOLD:
-                            current_time = time.time()
+                        if confidence > config.WAKE_WORD_THRESHOLD:
+                            count = self._above_threshold_counts.get(wake_word, 0) + 1
+                            self._above_threshold_counts[wake_word] = count
+                        else:
+                            self._above_threshold_counts[wake_word] = 0
+                            continue
 
-                            if current_time < self.tts_cooldown_end:
-                                if self.debug:
-                                    remaining = self.tts_cooldown_end - current_time
-                                    log_debug(self.logger, f"🔇 Ignoring detection during TTS cooldown ({remaining:.1f}s remaining)")
-                                continue
+                        min_consecutive = int(getattr(config, "WAKE_WORD_MIN_CONSECUTIVE", 1))
+                        if count < min_consecutive:
+                            continue
 
-                            if current_time - self.last_detection_time >= self.cooldown:
-                                self.last_detection_time = current_time
-                                log_success(self.logger, f"🔔 WAKE WORD: {wake_word} ({confidence:.2f})")
-                                play_wake_sound()
+                        self._above_threshold_counts[wake_word] = 0
+                        if current_time < self.tts_cooldown_end:
+                            if self.debug:
+                                remaining = self.tts_cooldown_end - current_time
+                                log_debug(self.logger, f"🔇 Ignoring detection during TTS cooldown ({remaining:.1f}s remaining)")
+                            self._above_threshold_counts[wake_word] = 0
+                            continue
 
-                                log_debug(self.logger, "Closing audio stream for command processing...")
-                                if self.stream:
-                                    self.stream.stop_stream()
-                                    self.stream.close()
-                                    self.stream = None
+                        if current_time - self.last_detection_time >= self.cooldown:
+                            self.last_detection_time = current_time
+                            log_success(self.logger, f"🔔 WAKE WORD: {wake_word} ({confidence:.2f})")
+                            play_wake_sound()
+                            try:
+                                self.model.reset()
+                            except Exception as reset_error:
+                                log_warning(self.logger, f"Model reset failed: {reset_error}")
+                            if self.event_bus:
+                                self.event_bus.publish(
+                                    ControlEvent.now(
+                                        EVENT_WAKE_WORD_DETECTED,
+                                        {
+                                            "wake_word": wake_word,
+                                            "confidence": round(float(confidence), 3),
+                                        },
+                                        source="wake_word_listener",
+                                    )
+                                )
 
+                            log_debug(self.logger, "Closing audio stream for command processing...")
+                            if self.stream:
+                                self.stream.stop_stream()
+                                self.stream.close()
+                                self.stream = None
+                            if self.event_bus:
+                                self._pending_stream_reopen = True
+                                self._pending_stream_reopen_at = time.time()
+                            else:
                                 try:
                                     self._notify_orchestrator()
                                 except Exception as notify_error:
                                     log_error(self.logger, f"Command processing error: {notify_error}")
-
                                 log_debug(self.logger, "Recreating audio stream for wake word detection...")
-                                # Retry stream recreation up to 3 times
-                                stream_recreated = False
-                                for retry in range(3):
-                                    try:
-                                        time.sleep(0.1 * (retry + 1))  # Increasing backoff
-
-                                        self.stream = self.p.open(
-                                            format=getattr(pyaudio, config.FORMAT),
-                                            channels=config.CHANNELS,
-                                            rate=self._input_rate,
-                                            input=True,
-                                            input_device_index=None,
-                                            frames_per_buffer=config.CHUNK
-                                        )
-
-                                        self._resample_buf = np.zeros(0, dtype=np.int16)
-                                        self.reset_model_state()
-
-                                        log_debug(self.logger, "Audio stream recreated successfully")
-                                        stream_recreated = True
-                                        break
-                                    except Exception as stream_error:
-                                        if retry < 2:
-                                            log_warning(self.logger, f"Stream recreation attempt {retry + 1} failed: {stream_error}, retrying...")
-                                        else:
-                                            log_error(self.logger, f"Stream recreation failed after 3 attempts: {stream_error}")
-
-                                if not stream_recreated:
-                                    log_error(self.logger, "Stopping wake word detection due to stream recreation failure")
-                                    self.running = False
-                                    break
-                        elif self.debug and confidence > config.LOW_CONFIDENCE_THRESHOLD:
+                                if not self._recreate_stream():
+                                    self._pending_stream_reopen = True
+                                    self._pending_stream_reopen_at = time.time()
+                        elif self.debug and confidence > (config.WAKE_WORD_THRESHOLD * 0.5):
                             log_debug(self.logger, f"👂 Low confidence: {wake_word} ({confidence:.2f})")
                 
                 time.sleep(0.001)
@@ -227,7 +318,6 @@ class WakeWordListener:
                 log_error(self.logger, f"Wake word listener error: {e}")
                 try:
                     self._resample_buf = np.zeros(0, dtype=np.int16)
-                    self.reset_model_state()
                     log_warning(self.logger, "Attempting to recover wake word detection...")
                     time.sleep(0.5)
                 except Exception as recovery_error:
@@ -256,7 +346,7 @@ class WakeWordListener:
         if audio_data.dtype != np.int16:
             audio_data = (audio_data * 32767).astype(np.int16)
         
-        chunk_size = config.CHUNK
+        chunk_size = WAKE_WORD_FRAME_SIZE
         detected = False
         
         for i in range(0, len(audio_data), chunk_size):
@@ -267,7 +357,7 @@ class WakeWordListener:
             prediction = self.model.predict(chunk)
             
             for wake_word, confidence in prediction.items():
-                if confidence > config.THRESHOLD:
+                if confidence > config.WAKE_WORD_THRESHOLD:
                     detected = True
                     break
             

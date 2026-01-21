@@ -1,0 +1,776 @@
+{
+  "catalog": [
+    {
+      "id": "jour1",
+      "file": "Louane - Jour 1.mp3",
+      "title": "Jour 1",
+      "artist": "Louane"
+    },
+    {
+      "id": "maman",
+      "file": "Louane - Maman.mp3",
+      "title": "Maman",
+      "artist": "Louane"
+    },
+    {
+      "id": "murs",
+      "file": "Kids United - On ecrit sur les murs.mp3",
+      "title": "On ecrit sur les murs",
+      "artist": "Kids United"
+    },
+    {
+      "id": "pat",
+      "file": "Pat Patrouille - Generique.mp3",
+      "title": "Generique",
+      "artist": "Pat Patrouille"
+    },
+    {
+      "id": "shark",
+      "file": "Pinkfong - Baby Shark.mp3",
+      "title": "Baby Shark",
+      "artist": "Pinkfong"
+    },
+    {
+      "id": "frozen",
+      "file": "Frozen - Liberee delivree.mp3",
+      "title": "Liberee delivree",
+      "artist": "Frozen"
+    },
+    {
+      "id": "moana",
+      "file": "Moana - Le bleu lumiere.mp3",
+      "title": "Le bleu lumiere",
+      "artist": "Moana"
+    },
+    {
+      "id": "alors",
+      "file": "Stromae - Alors on danse.mp3",
+      "title": "Alors on danse",
+      "artist": "Stromae"
+    },
+    {
+      "id": "grace",
+      "file": "MIKA - Grace Kelly.mp3",
+      "title": "Grace Kelly",
+      "artist": "MIKA"
+    },
+    {
+      "id": "coach",
+      "file": "Soprano - Le coach.mp3",
+      "title": "Le coach",
+      "artist": "Soprano"
+    },
+    {
+      "id": "feu",
+      "file": "Soprano - En feu.mp3",
+      "title": "En feu",
+      "artist": "Soprano"
+    },
+    {
+      "id": "sens",
+      "file": "Tal - Le sens de la vie.mp3",
+      "title": "Le sens de la vie",
+      "artist": "Tal"
+    },
+    {
+      "id": "lac",
+      "file": "Julien Dore - Le lac.mp3",
+      "title": "Le lac",
+      "artist": "Julien Dore"
+    },
+    {
+      "id": "pascontente",
+      "file": "Pas contente - Vaudou Game.mp3",
+      "title": "Pas contente",
+      "artist": "Vaudou Game"
+    },
+    {
+      "id": "adentro",
+      "file": "Adentro.mp3",
+      "title": "Adentro",
+      "artist": "Unknown"
+    },
+    {
+      "id": "aloneinkyoto",
+      "file": "Alone in Kyoto.mp3",
+      "title": "Alone in Kyoto",
+      "artist": "Unknown"
+    },
+    {
+      "id": "alorsondanseradioedit",
+      "file": "Alors on danse - Radio Edit.mp3",
+      "title": "Radio Edit",
+      "artist": "Alors on danse"
+    },
+    {
+      "id": "anotherday",
+      "file": "Another Day.mp3",
+      "title": "Another Day",
+      "artist": "Unknown"
+    },
+    {
+      "id": "astronomia",
+      "file": "Astronomia.mp3",
+      "title": "Astronomia",
+      "artist": "Unknown"
+    },
+    {
+      "id": "balkanexpress",
+      "file": "Balkan Express.mp3",
+      "title": "Balkan Express",
+      "artist": "Unknown"
+    },
+    {
+      "id": "believer",
+      "file": "Believer.mp3",
+      "title": "Believer",
+      "artist": "Unknown"
+    },
+    {
+      "id": "bluedabadeegabryponteicepopradio",
+      "file": "Blue (Da Ba Dee) - Gabry Ponte Ice Pop Radio.mp3",
+      "title": "Gabry Ponte Ice Pop Radio",
+      "artist": "Blue (Da Ba Dee)"
+    },
+    {
+      "id": "butido",
+      "file": "But I Do.mp3",
+      "title": "But I Do",
+      "artist": "Unknown"
+    },
+    {
+      "id": "chacunsaroute",
+      "file": "Chacun sa route.mp3",
+      "title": "Chacun sa route",
+      "artist": "Unknown"
+    },
+    {
+      "id": "comingoutofthedark",
+      "file": "Coming Out of the Dark.mp3",
+      "title": "Coming Out of the Dark",
+      "artist": "Unknown"
+    },
+    {
+      "id": "crazy",
+      "file": "Crazy.mp3",
+      "title": "Crazy",
+      "artist": "Unknown"
+    },
+    {
+      "id": "dad",
+      "file": "Dad.mp3",
+      "title": "Dad",
+      "artist": "Unknown"
+    },
+    {
+      "id": "deepbluedream",
+      "file": "Deep Blue Dream.mp3",
+      "title": "Deep Blue Dream",
+      "artist": "Unknown"
+    },
+    {
+      "id": "derrirelebrouillard",
+      "file": "Derrière le brouillard.mp3",
+      "title": "Derrière le brouillard",
+      "artist": "Unknown"
+    },
+    {
+      "id": "dismoiquetumaimes",
+      "file": "Dis-moi que tu m'aimes.mp3",
+      "title": "Dis-moi que tu m'aimes",
+      "artist": "Unknown"
+    },
+    {
+      "id": "electronicperformersliveatkcrw2001",
+      "file": "Electronic Performers - Live at KCRW, 2001.mp3",
+      "title": "Live at KCRW, 2001",
+      "artist": "Electronic Performers"
+    },
+    {
+      "id": "electronicperformers",
+      "file": "Electronic Performers.mp3",
+      "title": "Electronic Performers",
+      "artist": "Unknown"
+    },
+    {
+      "id": "entrelepouceetlindex",
+      "file": "Entre le pouce et l'index.mp3",
+      "title": "Entre le pouce et l'index",
+      "artist": "Unknown"
+    },
+    {
+      "id": "freedfromdesire",
+      "file": "Freed From Desire.mp3",
+      "title": "Freed From Desire",
+      "artist": "Unknown"
+    },
+    {
+      "id": "ghostwriter",
+      "file": "Ghostwriter.mp3",
+      "title": "Ghostwriter",
+      "artist": "Unknown"
+    },
+    {
+      "id": "gimmegimmegimmeamanaftermidnight",
+      "file": "Gimme! Gimme! Gimme! (A Man After Midnight).mp3",
+      "title": "Gimme! Gimme! Gimme! (A Man After Midnight)",
+      "artist": "Unknown"
+    },
+    {
+      "id": "healtheworld",
+      "file": "Heal the World.mp3",
+      "title": "Heal the World",
+      "artist": "Unknown"
+    },
+    {
+      "id": "howdoesitmakeyoufeel",
+      "file": "How Does It Make You Feel?.mp3",
+      "title": "How Does It Make You Feel?",
+      "artist": "Unknown"
+    },
+    {
+      "id": "jour12",
+      "file": "Jour 1.mp3",
+      "title": "Jour 1",
+      "artist": "Unknown"
+    },
+    {
+      "id": "joyeuxanniversaire",
+      "file": "Joyeux anniversaire.mp3",
+      "title": "Joyeux anniversaire",
+      "artist": "Unknown"
+    },
+    {
+      "id": "lhymnedelavie",
+      "file": "L'hymne de la vie.mp3",
+      "title": "L'hymne de la vie",
+      "artist": "Unknown"
+    },
+    {
+      "id": "lapnombredespaysbas",
+      "file": "La pénombre des Pays-Bas.mp3",
+      "title": "La pénombre des Pays-Bas",
+      "artist": "Unknown"
+    },
+    {
+      "id": "lavanit",
+      "file": "La vanité.mp3",
+      "title": "La vanité",
+      "artist": "Unknown"
+    },
+    {
+      "id": "lejourselve",
+      "file": "Le jour se lève.mp3",
+      "title": "Le jour se lève",
+      "artist": "Unknown"
+    },
+    {
+      "id": "lelionestmortcesoir",
+      "file": "Le lion est mort ce soir.mp3",
+      "title": "Le lion est mort ce soir",
+      "artist": "Unknown"
+    },
+    {
+      "id": "lemondesestddoubl",
+      "file": "Le monde s'est dédoublé.mp3",
+      "title": "Le monde s'est dédoublé",
+      "artist": "Unknown"
+    },
+    {
+      "id": "levaldamour",
+      "file": "Le val d'amour.mp3",
+      "title": "Le val d'amour",
+      "artist": "Unknown"
+    },
+    {
+      "id": "lesdormantes",
+      "file": "Les dormantes.mp3",
+      "title": "Les dormantes",
+      "artist": "Unknown"
+    },
+    {
+      "id": "lettrem",
+      "file": "Lettre à M.mp3",
+      "title": "Lettre à M",
+      "artist": "Unknown"
+    },
+    {
+      "id": "libertad",
+      "file": "Libertad.mp3",
+      "title": "Libertad",
+      "artist": "Unknown"
+    },
+    {
+      "id": "look",
+      "file": "Look.mp3",
+      "title": "Look",
+      "artist": "Unknown"
+    },
+    {
+      "id": "malovesupreme",
+      "file": "Ma love supreme.mp3",
+      "title": "Ma love supreme",
+      "artist": "Unknown"
+    },
+    {
+      "id": "masur",
+      "file": "Ma sœur.mp3",
+      "title": "Ma sœur",
+      "artist": "Unknown"
+    },
+    {
+      "id": "magicintheairfeatahmedchawki",
+      "file": "Magic in the Air (feat. Ahmed Chawki).mp3",
+      "title": "Magic in the Air (feat. Ahmed Chawki)",
+      "artist": "Unknown"
+    },
+    {
+      "id": "maisjetaime",
+      "file": "Mais je t'aime.mp3",
+      "title": "Mais je t'aime",
+      "artist": "Unknown"
+    },
+    {
+      "id": "mamaafricafeatangliquekidjoetyoussoundour",
+      "file": "Mama Africa (feat. Angélique Kidjo et Youssou Ndour).mp3",
+      "title": "Mama Africa (feat. Angélique Kidjo et Youssou Ndour)",
+      "artist": "Unknown"
+    },
+    {
+      "id": "mama",
+      "file": "Mama.mp3",
+      "title": "Mama",
+      "artist": "Unknown"
+    },
+    {
+      "id": "maman2",
+      "file": "maman.mp3",
+      "title": "maman",
+      "artist": "Unknown"
+    },
+    {
+      "id": "mlodiehongroise",
+      "file": "Mélodie hongroise.mp3",
+      "title": "Mélodie hongroise",
+      "artist": "Unknown"
+    },
+    {
+      "id": "mxico",
+      "file": "México.mp3",
+      "title": "México",
+      "artist": "Unknown"
+    },
+    {
+      "id": "newstarintheskyvegynversion",
+      "file": "New Star in the Sky - Vegyn Version.mp3",
+      "title": "Vegyn Version",
+      "artist": "New Star in the Sky"
+    },
+    {
+      "id": "nuitdefolie",
+      "file": "Nuit de folie.mp3",
+      "title": "Nuit de folie",
+      "artist": "Unknown"
+    },
+    {
+      "id": "oncritsurlesmurs",
+      "file": "On écrit sur les murs.mp3",
+      "title": "On écrit sur les murs",
+      "artist": "Unknown"
+    },
+    {
+      "id": "ontaitbeau",
+      "file": "On était beau.mp3",
+      "title": "On était beau",
+      "artist": "Unknown"
+    },
+    {
+      "id": "origine",
+      "file": "Origine.mp3",
+      "title": "Origine",
+      "artist": "Unknown"
+    },
+    {
+      "id": "papayavayapapayas",
+      "file": "Papaya - Vaya Papayas.mp3",
+      "title": "Vaya Papayas",
+      "artist": "Papaya"
+    },
+    {
+      "id": "parisspedupversion",
+      "file": "Paris - Sped Up Version.mp3",
+      "title": "Sped Up Version",
+      "artist": "Paris"
+    },
+    {
+      "id": "passingby",
+      "file": "Passing By.mp3",
+      "title": "Passing By",
+      "artist": "Unknown"
+    },
+    {
+      "id": "queenofkings",
+      "file": "Queen of Kings.mp3",
+      "title": "Queen of Kings",
+      "artist": "Unknown"
+    },
+    {
+      "id": "radionumber1",
+      "file": "Radio Number 1.mp3",
+      "title": "Radio Number 1",
+      "artist": "Unknown"
+    },
+    {
+      "id": "relaxtakeiteasy",
+      "file": "Relax, Take It Easy.mp3",
+      "title": "Relax, Take It Easy",
+      "artist": "Unknown"
+    },
+    {
+      "id": "rimtimtagidim",
+      "file": "Rim Tim Tagi Dim.mp3",
+      "title": "Rim Tim Tagi Dim",
+      "artist": "Unknown"
+    },
+    {
+      "id": "roserouge",
+      "file": "Rose rouge.mp3",
+      "title": "Rose rouge",
+      "artist": "Unknown"
+    },
+    {
+      "id": "royallyrulethisworld",
+      "file": "Royally Rule This World.mp3",
+      "title": "Royally Rule This World",
+      "artist": "Unknown"
+    },
+    {
+      "id": "sexycool",
+      "file": "Sexy Cool.mp3",
+      "title": "Sexy Cool",
+      "artist": "Unknown"
+    },
+    {
+      "id": "sidemain",
+      "file": "Si demain.mp3",
+      "title": "Si demain",
+      "artist": "Unknown"
+    },
+    {
+      "id": "sittaisl",
+      "file": "Si t'étais là.mp3",
+      "title": "Si t'étais là",
+      "artist": "Unknown"
+    },
+    {
+      "id": "surfingonarocket",
+      "file": "Surfing on a Rocket.mp3",
+      "title": "Surfing on a Rocket",
+      "artist": "Unknown"
+    },
+    {
+      "id": "thebigblueouverture",
+      "file": "The Big Blue - Ouverture.mp3",
+      "title": "Ouverture",
+      "artist": "The Big Blue"
+    },
+    {
+      "id": "thecode",
+      "file": "The Code.mp3",
+      "title": "The Code",
+      "artist": "Unknown"
+    },
+    {
+      "id": "thomasthomas",
+      "file": "Thomas & Thomas.mp3",
+      "title": "Thomas & Thomas",
+      "artist": "Unknown"
+    },
+    {
+      "id": "tristesse",
+      "file": "Tristesse.mp3",
+      "title": "Tristesse",
+      "artist": "Unknown"
+    },
+    {
+      "id": "voil",
+      "file": "Voilà.mp3",
+      "title": "Voilà",
+      "artist": "Unknown"
+    },
+    {
+      "id": "whosgotthebacon",
+      "file": "Who's Got The Bacon?.mp3",
+      "title": "Who's Got The Bacon?",
+      "artist": "Unknown"
+    }
+  ],
+  "play_cases": [
+    {
+      "text": "mets jour 1",
+      "expect_id": "jour1"
+    },
+    {
+      "text": "joue louane jour un",
+      "expect_id": "jour1"
+    },
+    {
+      "text": "lance jour un",
+      "expect_id": "jour1"
+    },
+    {
+      "text": "mets maman",
+      "expect_id": "maman"
+    },
+    {
+      "text": "joue louanne maman",
+      "expect_id": "maman"
+    },
+    {
+      "text": "mets la chanson maman",
+      "expect_id": "maman"
+    },
+    {
+      "text": "joue kids united murs",
+      "expect_id": "murs"
+    },
+    {
+      "text": "mets on ecrit sur les mur",
+      "expect_id": "murs"
+    },
+    {
+      "text": "lance ecrit sur les murs",
+      "expect_id": "murs"
+    },
+    {
+      "text": "mets pat patrouille",
+      "expect_id": "pat"
+    },
+    {
+      "text": "mets pat patrouy",
+      "expect_id": "pat"
+    },
+    {
+      "text": "joue generique pat patrouille",
+      "expect_id": "pat"
+    },
+    {
+      "text": "mets baby shark",
+      "expect_id": "shark"
+    },
+    {
+      "text": "joue babi shark",
+      "expect_id": "shark"
+    },
+    {
+      "text": "lance pinkfong baby shark",
+      "expect_id": "shark"
+    },
+    {
+      "text": "mets liberee delivree",
+      "expect_id": "frozen"
+    },
+    {
+      "text": "joue libere delivre",
+      "expect_id": "frozen"
+    },
+    {
+      "text": "mets frozen liberee",
+      "expect_id": "frozen"
+    },
+    {
+      "text": "mets moana",
+      "expect_id": "moana"
+    },
+    {
+      "text": "joue bleu lumiere",
+      "expect_id": "moana"
+    },
+    {
+      "text": "lance le bleu lumiere moana",
+      "expect_id": "moana"
+    },
+    {
+      "text": "mets alors on danse",
+      "expect_id": "alors"
+    },
+    {
+      "text": "joue alors on danse stromae",
+      "expect_id": "alors"
+    },
+    {
+      "text": "lance danse stromae",
+      "expect_id": "alors"
+    },
+    {
+      "text": "mets grace kelly",
+      "expect_id": "grace"
+    },
+    {
+      "text": "joue mika grace kely",
+      "expect_id": "grace"
+    },
+    {
+      "text": "lance grace kelli",
+      "expect_id": "grace"
+    },
+    {
+      "text": "mets le coach",
+      "expect_id": "coach"
+    },
+    {
+      "text": "joue sopran le coach",
+      "expect_id": "coach"
+    },
+    {
+      "text": "lance le coach soprano",
+      "expect_id": "coach"
+    },
+    {
+      "text": "mets en feu",
+      "expect_id": "feu"
+    },
+    {
+      "text": "joue soprano en feu",
+      "expect_id": "feu"
+    },
+    {
+      "text": "lance en feux",
+      "expect_id": "feu"
+    },
+    {
+      "text": "mets le sens de la vie",
+      "expect_id": "sens"
+    },
+    {
+      "text": "joue tal sens de la vie",
+      "expect_id": "sens"
+    },
+    {
+      "text": "lance sens de la vie tal",
+      "expect_id": "sens"
+    },
+    {
+      "text": "mets le lac",
+      "expect_id": "lac"
+    },
+    {
+      "text": "joue julien dore le lac",
+      "expect_id": "lac"
+    },
+    {
+      "text": "lance lac julien dore",
+      "expect_id": "lac"
+    },
+    {
+      "text": "mets baby shark s'il te plait",
+      "expect_id": "shark"
+    },
+    {
+      "text": "tu peux? nètre! si, ta compte.",
+      "expect_id": "pascontente"
+    },
+    {
+      "text": "tu veux? mets! bah, quoi, tant?",
+      "expect_id": "ontaitbeau"
+    },
+    {
+      "text": "tu veux être mètre, pas grand-tot.",
+      "expect_id": "pascontente"
+    },
+    {
+      "text": "tu peux m'être pas content.",
+      "expect_id": "pascontente"
+    },
+    {
+      "text": "avec ça, je veux écouter, si tu n'as pas content.",
+      "expect_id": "pascontente"
+    },
+    {
+      "text": "je ne écoutez, je n'ai pas content.",
+      "expect_id": "pascontente"
+    }
+  ],
+  "control_cases": [
+    {
+      "text": "plus fort",
+      "expect_intent": "volume_up"
+    },
+    {
+      "text": "monte le son",
+      "expect_intent": "volume_up"
+    },
+    {
+      "text": "augmente un peu",
+      "expect_intent": "volume_up"
+    },
+    {
+      "text": "plus de son",
+      "expect_intent": "volume_up"
+    },
+    {
+      "text": "pousse le son",
+      "expect_intent": "volume_up"
+    },
+    {
+      "text": "on entend rien",
+      "expect_intent": "volume_up"
+    },
+    {
+      "text": "monte",
+      "expect_intent": "volume_up"
+    },
+    {
+      "text": "moins fort",
+      "expect_intent": "volume_down"
+    },
+    {
+      "text": "baisse le son",
+      "expect_intent": "volume_down"
+    },
+    {
+      "text": "plus bas",
+      "expect_intent": "volume_down"
+    },
+    {
+      "text": "trop fort",
+      "expect_intent": "volume_down"
+    },
+    {
+      "text": "doucement",
+      "expect_intent": "volume_down"
+    },
+    {
+      "text": "plus doucement",
+      "expect_intent": "volume_down"
+    },
+    {
+      "text": "baisse",
+      "expect_intent": "volume_down"
+    },
+    {
+      "text": "arrete",
+      "expect_intent": "pause"
+    },
+    {
+      "text": "stop la musique",
+      "expect_intent": "pause"
+    },
+    {
+      "text": "coupe ça",
+      "expect_intent": "pause"
+    },
+    {
+      "text": "eteins la musique",
+      "expect_intent": "pause"
+    },
+    {
+      "text": "silence",
+      "expect_intent": "pause"
+    },
+    {
+      "text": "ça suffit",
+      "expect_intent": "pause"
+    }
+  ]
+}

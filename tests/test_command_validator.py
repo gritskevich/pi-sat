@@ -10,10 +10,12 @@ import pytest
 from modules.command_validator import CommandValidator, ValidationResult
 from modules.interfaces import Intent
 from modules.music_library import MusicLibrary
+from tests.utils.fixture_loader import load_fixture
 
 RESPONSE_LIBRARY = json.loads(
     Path(__file__).resolve().parent.parent.joinpath("resources/response_library.json").read_text(encoding="utf-8")
 )
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "command_validator_fr.json"
 
 
 def _response_options(language: str, key: str, **params):
@@ -177,295 +179,36 @@ class TestCommandValidatorFrench:
         assert result.feedback_message in _response_options('fr', 'empty_library')
 
     # Simple control validation tests
-    def test_pause_validation(self, validator_fr):
-        """Test pause command validation."""
-        intent = Intent(
-            intent_type='pause',
-            confidence=0.9,
-            parameters={},
-            raw_text='pause',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'pausing')
-
-    def test_resume_validation(self, validator_fr):
-        """Test resume command validation."""
-        intent = Intent(
-            intent_type='resume',
-            confidence=0.9,
-            parameters={},
-            raw_text='reprends',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'resuming')
-
-    def test_stop_validation(self, validator_fr):
-        """Test stop command validation."""
-        intent = Intent(
-            intent_type='stop',
-            confidence=0.9,
-            parameters={},
-            raw_text='arrête',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'stopping')
-
-    def test_next_validation(self, validator_fr):
-        """Test next command validation."""
-        intent = Intent(
-            intent_type='next',
-            confidence=0.9,
-            parameters={},
-            raw_text='suivant',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'next_song')
-
-    def test_previous_validation(self, validator_fr):
-        """Test previous command validation."""
-        intent = Intent(
-            intent_type='previous',
-            confidence=0.9,
-            parameters={},
-            raw_text='précédent',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'previous_song')
+    def test_simple_control_validation(self, validator_fr):
+        """Test simple control commands."""
+        fixture = load_fixture(FIXTURE_PATH)
+        for case in fixture["simple_controls"]:
+            intent = Intent(
+                intent_type=case["intent"],
+                confidence=0.9,
+                parameters={},
+                raw_text=case["raw_text"],
+                language="fr"
+            )
+            result = validator_fr.validate(intent)
+            assert result.is_valid is True
+            assert result.feedback_message in _response_options('fr', case["response_key"])
 
     # Volume validation tests
-    def test_volume_up_validation(self, validator_fr):
-        """Test volume up validation."""
-        intent = Intent(
-            intent_type='volume_up',
-            confidence=0.9,
-            parameters={},
-            raw_text='plus fort',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'volume_up')
-
-    def test_volume_down_validation(self, validator_fr):
-        """Test volume down validation."""
-        intent = Intent(
-            intent_type='volume_down',
-            confidence=0.9,
-            parameters={},
-            raw_text='moins fort',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'volume_down')
-
-    # Favorites validation tests
-    def test_add_favorite_validation(self, validator_fr):
-        """Test add to favorites validation."""
-        intent = Intent(
-            intent_type='add_favorite',
-            confidence=0.9,
-            parameters={},
-            raw_text='j\'aime',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'adding_favorite')
-
-    def test_play_favorites_validation(self, validator_fr):
-        """Test play favorites validation."""
-        intent = Intent(
-            intent_type='play_favorites',
-            confidence=0.9,
-            parameters={},
-            raw_text='joue mes favoris',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'playing_favorites')
-
-    # Sleep timer validation tests
-    def test_sleep_timer_valid(self, validator_fr):
-        """Test sleep timer with valid duration."""
-        intent = Intent(
-            intent_type='sleep_timer',
-            confidence=0.9,
-            parameters={'duration_minutes': 30},
-            raw_text='arrête dans 30 minutes',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'sleep_timer', minutes=30)
-
-    def test_sleep_timer_invalid_duration(self, validator_fr):
-        """Test sleep timer with invalid duration."""
-        intent = Intent(
-            intent_type='sleep_timer',
-            confidence=0.9,
-            parameters={'duration_minutes': None},
-            raw_text='arrête dans un moment',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is False
-        assert result.feedback_message in _response_options('fr', 'invalid_duration')
-
-    def test_sleep_timer_negative_duration(self, validator_fr):
-        """Test sleep timer with negative duration."""
-        intent = Intent(
-            intent_type='sleep_timer',
-            confidence=0.9,
-            parameters={'duration_minutes': -5},
-            raw_text='arrête dans -5 minutes',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is False
-
-    # Repeat/Shuffle validation tests
-    def test_repeat_on_validation(self, validator_fr):
-        """Test repeat on validation."""
-        intent = Intent(
-            intent_type='repeat_song',
-            confidence=0.9,
-            parameters={},
-            raw_text='répète',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'repeat_on')
-
-    def test_shuffle_on_validation(self, validator_fr):
-        """Test shuffle on validation."""
-        intent = Intent(
-            intent_type='shuffle_on',
-            confidence=0.9,
-            parameters={},
-            raw_text='mélange',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'shuffle_on')
-
-    # Queue validation tests
-    def test_play_next_validation(self, validator_fr):
-        """Test play next validation."""
-        intent = Intent(
-            intent_type='play_next',
-            confidence=0.9,
-            parameters={'query': 'frozen'},
-            raw_text='joue frozen ensuite',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'play_next', song='frozen')
-
-    def test_play_next_empty_query(self, validator_fr):
-        """Test play next with empty query."""
-        intent = Intent(
-            intent_type='play_next',
-            confidence=0.9,
-            parameters={'query': ''},
-            raw_text='joue ensuite',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is False
-
-    # Alarm validation tests
-    def test_set_alarm_valid(self, validator_fr):
-        """Test set alarm with valid time."""
-        intent = Intent(
-            intent_type='set_alarm',
-            confidence=0.9,
-            parameters={'time': '07:00'},
-            raw_text='réveille-moi à 7 heures',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'alarm_set', time='07:00')
-
-    def test_set_alarm_invalid_time(self, validator_fr):
-        """Test set alarm with invalid time."""
-        intent = Intent(
-            intent_type='set_alarm',
-            confidence=0.9,
-            parameters={'time': ''},
-            raw_text='réveille-moi',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is False
-        assert result.feedback_message in _response_options('fr', 'invalid_time')
-
-    def test_cancel_alarm_validation(self, validator_fr):
-        """Test cancel alarm validation."""
-        intent = Intent(
-            intent_type='cancel_alarm',
-            confidence=0.9,
-            parameters={},
-            raw_text='annule l\'alarme',
-            language='fr'
-        )
-
-        result = validator_fr.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('fr', 'alarm_cancelled')
-
+    def test_volume_validation(self, validator_fr):
+        """Test volume up/down validation."""
+        fixture = load_fixture(FIXTURE_PATH)
+        for case in fixture["volume_controls"]:
+            intent = Intent(
+                intent_type=case["intent"],
+                confidence=0.9,
+                parameters={},
+                raw_text=case["raw_text"],
+                language="fr"
+            )
+            result = validator_fr.validate(intent)
+            assert result.is_valid is True
+            assert result.feedback_message in _response_options('fr', case["response_key"])
 
 class TestCommandValidatorEnglish:
     """Test CommandValidator with English messages."""
@@ -474,21 +217,6 @@ class TestCommandValidatorEnglish:
     def validator_en(self):
         """English validator without music library."""
         return CommandValidator(music_library=None, language='en')
-
-    def test_pause_validation_en(self, validator_en):
-        """Test pause command validation in English."""
-        intent = Intent(
-            intent_type='pause',
-            confidence=0.9,
-            parameters={},
-            raw_text='pause',
-            language='en'
-        )
-
-        result = validator_en.validate(intent)
-
-        assert result.is_valid is True
-        assert result.feedback_message in _response_options('en', 'pausing')
 
     def test_play_music_no_library_en(self, validator_en):
         """Test play music without library in English."""
@@ -557,7 +285,7 @@ class TestCommandValidatorErrorHandling:
             intent_type='pause',
             confidence=0.9,
             parameters={},
-            raw_text='pause',
+            raw_text='stop',
             language='fr'
         )
 

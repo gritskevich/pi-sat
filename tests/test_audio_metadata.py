@@ -1,8 +1,8 @@
-import json
 import wave
 from pathlib import Path
 
 import pytest
+from tests.utils.fixture_loader import load_fixture
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -12,8 +12,7 @@ METADATA_PATH = PROJECT_ROOT / "tests" / "audio_samples" / "test_metadata.json"
 def _load_metadata() -> dict:
     if not METADATA_PATH.exists():
         pytest.skip(f"Missing metadata file: {METADATA_PATH}")
-    with open(METADATA_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return load_fixture(METADATA_PATH)
 
 
 def test_audio_metadata_schema():

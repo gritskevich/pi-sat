@@ -15,7 +15,7 @@ import config
 import json
 from pathlib import Path
 from unittest.mock import Mock, MagicMock
-from modules.intent_patterns import Intent
+from modules.interfaces import Intent
 
 
 def create_mock_intent_engine(language='fr', fuzzy_threshold=None):

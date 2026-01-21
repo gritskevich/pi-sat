@@ -74,7 +74,7 @@ def play_wake_sound():
     # Prefer PipeWire native playback when available; fallback to PulseAudio/ALSA.
     if device in ("pulse", "pipewire") and shutil.which("pw-play"):
         # PipeWire can drop ultra-short sounds when the sink is idle.
-        # Add leading/trailing silence via sox to wake the sink reliably.
+        # Add leading/trailing silence and repeat 3x to wake the sink reliably.
         if shutil.which("sox"):
             sox_proc = subprocess.run(
                 ["sox", path, "-t", "raw", "-r", "48000", "-e", "signed", "-b", "16", "-c", "1", "-", "repeat", "2", "pad", "0.03", "0.05"],
@@ -95,23 +95,60 @@ def play_wake_sound():
                 err = play_proc.stderr.decode("utf-8", errors="replace").strip()
                 log_warning(logger, f"Wake sound pw-play failed: {err}")
             return
-        else:
-            cmd_parts = ["pw-play", "--volume", "1.0", path]
+        cmd_parts = ["pw-play", "--volume", "1.0", path]
+        play_repeats = 3
+        play_data = None
     elif device == "pulse":
-        cmd_parts = ["paplay", "--volume=65536", path]  # 65536 = 100% volume
+        if shutil.which("sox"):
+            sox_proc = subprocess.run(
+                ["sox", path, "-t", "wav", "-", "repeat", "2", "pad", "0.03", "0.05"],
+                capture_output=True,
+                timeout=2
+            )
+            if sox_proc.returncode != 0:
+                err = sox_proc.stderr.decode("utf-8", errors="replace").strip()
+                log_warning(logger, f"Wake sound sox failed: {err}")
+                return
+            cmd_parts = ["paplay", "--volume=65536", "-"]  # 65536 = 100% volume
+            play_repeats = 1
+            play_data = sox_proc.stdout
+        else:
+            cmd_parts = ["paplay", "--volume=65536", path]  # 65536 = 100% volume
+            play_repeats = 3
+            play_data = None
     else:
-        cmd_parts = ["aplay"]
-        if device:
-            cmd_parts += ["-D", device]
-        cmd_parts += ["-q", path]
+        if shutil.which("sox"):
+            sox_proc = subprocess.run(
+                ["sox", path, "-t", "wav", "-", "repeat", "2", "pad", "0.03", "0.05"],
+                capture_output=True,
+                timeout=2
+            )
+            if sox_proc.returncode != 0:
+                err = sox_proc.stderr.decode("utf-8", errors="replace").strip()
+                log_warning(logger, f"Wake sound sox failed: {err}")
+                return
+            cmd_parts = ["aplay"]
+            if device:
+                cmd_parts += ["-D", device]
+            cmd_parts += ["-q", "-"]
+            play_repeats = 1
+            play_data = sox_proc.stdout
+        else:
+            cmd_parts = ["aplay"]
+            if device:
+                cmd_parts += ["-D", device]
+            cmd_parts += ["-q", path]
+            play_repeats = 3
+            play_data = None
 
-    if "cmd_parts" in locals():
+    for _ in range(play_repeats):
         try:
             subprocess.run(
                 cmd_parts,
+                input=play_data,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=2
             )
         except Exception:
-            pass
+            break

@@ -27,9 +27,8 @@ _pisat_cmdlist() {
     fi
 
     printf '%s\n' \
-        install activate test run run_debug run_live test_synthetic test_wake_stt \
-        test_wake_stt_debug calibrate_vad benchmark_stt listen test_mic logs_clear \
-        hailo_check download_voice completion clean help
+        install activate daemon test run run_debug run_live calibrate_vad listen \
+        test_mic test_wake logs_clear hailo_check download_voice completion clean help
 }
 
 _pisat_test_targets() {
@@ -40,7 +39,7 @@ _pisat_test_targets() {
         "$root/pi-sat.sh" __complete test_targets 2>/dev/null && return 0
     fi
 
-    printf '%s\n' wake_word listener orchestrator integration microphone stt stt_integration e2e
+    printf '%s\n' wake_word orchestrator e2e mpd intent music tts volume
 }
 
 _pisat_completions() {

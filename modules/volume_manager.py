@@ -16,13 +16,11 @@ The research shows: "Don't use amixer, it can confuse PipeWire session managers.
 import subprocess
 import logging
 from typing import Optional, Tuple
-from modules.logging_utils import setup_logger
+from modules.base_module import BaseModule
 import config
 
-logger = setup_logger(__name__)
 
-
-class VolumeManager:
+class VolumeManager(BaseModule):
     """
     SIMPLIFIED volume management using PulseAudio/PipeWire sink volume.
 
@@ -30,13 +28,14 @@ class VolumeManager:
     Uses pactl for PulseAudio/PipeWire volume control.
     """
 
-    def __init__(self, mpd_controller=None):
+    def __init__(self, mpd_controller=None, debug: bool = False, verbose: bool = True, event_bus=None):
         """
         Initialize volume manager.
 
         Args:
             mpd_controller: Optional MPDController instance (for setting MPD to 100%)
         """
+        super().__init__(__name__, debug=debug, verbose=verbose, event_bus=event_bus)
         self.mpd_controller = mpd_controller
 
         # Cached master volume (0-100)
@@ -45,7 +44,7 @@ class VolumeManager:
         # Detect PulseAudio/PipeWire availability
         self._pulse_available = self._check_pulse_available()
 
-        logger.info(f"VolumeManager initialized - PulseAudio/PipeWire: {self._pulse_available}")
+        self.logger.info(f"VolumeManager initialized - PulseAudio/PipeWire: {self._pulse_available}")
 
     def initialize_default_volume(self, default_volume: int = 50):
         """
@@ -66,22 +65,22 @@ class VolumeManager:
             success = self.set_master_volume(default_volume)
             if success:
                 self.master_volume = default_volume
-                logger.info(f"🔊 Initialized MASTER volume: {default_volume}%")
+                self.logger.info(f"🔊 Initialized MASTER volume: {default_volume}%")
             else:
-                logger.warning(f"Failed to initialize volume to {default_volume}%, using current volume")
+                self.logger.warning(f"Failed to initialize volume to {default_volume}%, using current volume")
                 current = self.get_master_volume()
                 if current is not None:
                     self.master_volume = current
-                    logger.info(f"🔊 Using current MASTER volume: {current}%")
+                    self.logger.info(f"🔊 Using current MASTER volume: {current}%")
                 else:
                     self.master_volume = default_volume
-                    logger.warning(f"Cannot read volume, assuming {default_volume}%")
+                    self.logger.warning(f"Cannot read volume, assuming {default_volume}%")
 
             # Step 2: Set MPD to 100% (software volume, never changed after this)
             if self.mpd_controller:
                 self._set_mpd_volume_100()
         except Exception as e:
-            logger.error(f"Error initializing default volume: {e}")
+            self.logger.error(f"Error initializing default volume: {e}")
             self.master_volume = default_volume
 
     def _check_pulse_available(self) -> bool:
@@ -109,10 +108,10 @@ class VolumeManager:
         try:
             with self.mpd_controller._ensure_connection():
                 self.mpd_controller.client.setvol(100)
-                logger.info(f"🔈 MPD software volume set to 100% (fixed)")
+                self.logger.info("🔈 MPD software volume set to 100% (fixed)")
                 return True
         except Exception as e:
-            logger.debug(f"Failed to set MPD volume to 100%: {e}")
+            self.logger.debug(f"Failed to set MPD volume to 100%: {e}")
         return False
     
     def get_master_volume(self) -> Optional[int]:
@@ -154,10 +153,10 @@ class VolumeManager:
         if self._pulse_available:
             if self._set_pulse_volume(volume):
                 self.master_volume = volume
-                logger.debug(f"MASTER volume set (PulseAudio sink): {volume}%")
+                self.logger.debug(f"MASTER volume set (PulseAudio sink): {volume}%")
                 return True
 
-        logger.warning("PulseAudio/PipeWire not available for volume control")
+        self.logger.warning("PulseAudio/PipeWire not available for volume control")
         return False
 
     def _get_pulse_volume(self) -> Optional[int]:
@@ -188,7 +187,7 @@ class VolumeManager:
 
             return None
         except Exception as e:
-            logger.debug(f"Failed to get PulseAudio volume: {e}")
+            self.logger.debug(f"Failed to get PulseAudio volume: {e}")
             return None
 
     def _set_pulse_volume(self, volume: int) -> bool:
@@ -201,7 +200,7 @@ class VolumeManager:
             )
             return result.returncode == 0
         except Exception as e:
-            logger.debug(f"Failed to set PulseAudio volume: {e}")
+            self.logger.debug(f"Failed to set PulseAudio volume: {e}")
             return False
     
     def _adjust_volume(self, amount: int, direction: str) -> Tuple[bool, str]:
@@ -228,7 +227,7 @@ class VolumeManager:
         success = self.set_master_volume(new_volume)
         if success:
             self.master_volume = new_volume
-            logger.info(f"📊 Volume {direction}: {current}% → {new_volume}%")
+            self.logger.info(f"📊 Volume {direction}: {current}% → {new_volume}%")
             return (True, f"Volume {new_volume}%")
         return (False, f"Failed to {'increase' if direction == 'up' else 'decrease'} volume")
 

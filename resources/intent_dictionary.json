@@ -1,0 +1,136 @@
+{
+  "fr": {
+    "play_music": [
+      "jou",
+      "joue",
+      "jouer",
+      "mets",
+      "mettre",
+      "lance",
+      "balance",
+      "envoie",
+      "ecoute",
+      "ecouter",
+      "écoute",
+      "écouter",
+      "mets la chanson",
+      "mets moi",
+      "mets-moi",
+      "joue moi",
+      "joue-moi",
+      "tu peux mettre",
+      "tu peux jouer",
+      "je veux écouter",
+      "je veux ecouter",
+      "je veux entendre"
+    ],
+    "volume_up": [
+      "plus fort",
+      "monte",
+      "monter",
+      "monte le son",
+      "monte le volume",
+      "monter le son",
+      "monter le volume",
+      "augmente",
+      "plus haut",
+      "pousse",
+      "plus de son",
+      "on entend rien",
+      "j'entends pas",
+      "j'entends mal"
+    ],
+    "volume_down": [
+      "moins fort",
+      "mettre moins fort",
+      "tu peux mettre moins fort",
+      "baisse",
+      "baisser",
+      "diminue",
+      "plus bas",
+      "trop fort",
+      "doucement",
+      "plus doucement",
+      "chut",
+      "baisse le son",
+      "baisse le volume"
+    ],
+    "pause": [
+      "arrête",
+      "arrete",
+      "arrêter",
+      "arreter",
+      "arrête la musique",
+      "arrete la musique",
+      "arrête de jouer",
+      "arrete de jouer",
+      "arrête ça",
+      "arrete ça",
+      "pause",
+      "stop",
+      "éteins",
+      "eteins",
+      "coupe",
+      "silence",
+      "ça suffit",
+      "ca suffit"
+    ],
+    "continue": [
+      "continue",
+      "remets",
+      "remettre",
+      "continue la musique",
+      "continue s'il te plait",
+      "continue s il te plait",
+      "vas y continue",
+      "vas-y continue",
+      "reprends",
+      "reprends la musique",
+      "reprendre la musique",
+      "remets la musique",
+      "remets la chanson",
+      "relance la musique",
+      "encore",
+      "encore s'il te plait",
+      "encore s il te plait",
+      "tu peux continuer",
+      "tu peux continuer la musique",
+      "on continue"
+    ]
+  },
+  "en": {
+    "play_music": [
+      "play",
+      "put on",
+      "start playing",
+      "i want to listen",
+      "i want to hear"
+    ],
+    "volume_up": [
+      "louder",
+      "volume up",
+      "turn it up",
+      "increase volume",
+      "raise volume"
+    ],
+    "volume_down": [
+      "quieter",
+      "volume down",
+      "turn it down",
+      "decrease volume",
+      "lower volume"
+    ],
+    "pause": [
+      "stop",
+      "stop music",
+      "stop playing",
+      "turn off"
+    ],
+    "continue": [
+      "continue",
+      "resume",
+      "keep playing",
+      "start again"
+    ]
+  }
+}

@@ -5,6 +5,7 @@ import numpy as np
 
 import config
 
+WAKE_WORD_FRAME_SIZE = 1280
 
 def read_wav_mono_int16(path: str) -> tuple[np.ndarray, int]:
     """Read a WAV file as mono int16 numpy array + sample rate (WAV-only standard)."""
@@ -24,7 +25,7 @@ def read_wav_mono_int16(path: str) -> tuple[np.ndarray, int]:
     return audio, rate
 
 def reset_model_state(model):
-    silence = np.zeros(config.CHUNK * 25, dtype=np.int16)
+    silence = np.zeros(WAKE_WORD_FRAME_SIZE * 25, dtype=np.int16)
     for _ in range(5):
         model.predict(silence)
 
@@ -53,8 +54,8 @@ def process_audio_file(file_path, model):
     silence_pad = np.zeros(config.CHUNK * 10, dtype=np.int16)
     audio = np.concatenate([silence_pad, audio, silence_pad])
     
-    chunk_size = config.CHUNK
-    max_confidence = 0
+    chunk_size = WAKE_WORD_FRAME_SIZE
+    max_confidence = 0.0
     detections = 0
     
     for i in range(0, len(audio), chunk_size):
@@ -65,7 +66,7 @@ def process_audio_file(file_path, model):
         prediction = model.predict(chunk)
         for wake_word, confidence in prediction.items():
             max_confidence = max(max_confidence, confidence)
-            if confidence > config.THRESHOLD:
+            if confidence > config.WAKE_WORD_THRESHOLD:
                 detections += 1
     
     return detections > 0, max_confidence 

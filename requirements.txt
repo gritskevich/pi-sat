@@ -6,16 +6,19 @@ scipy>=1.10.0
 
 # Voice Activity Detection & Wake Word
 webrtcvad>=2.0.10
-openwakeword>=0.6.0
-speexdsp-ns>=0.1.2  # Noise suppression for wake word detection during music/noise
+onnxruntime>=1.16.0
+tqdm>=4.66.0
+pyyaml>=6.0.0
+# openwakeword installed via `./pi-sat.sh install` with --no-deps to avoid tflite-runtime
 
 # Machine Learning (STT)
-numpy<2
+numpy>=1.26.4
 transformers>=4.30.0
 torch>=2.0.0
 
 # Music Player Control
 python-mpd2>=3.1.0
+mutagen>=1.47.0
 
 # Fuzzy String Matching (Intent Classification)
 thefuzz>=0.20.0
@@ -29,6 +32,7 @@ rpi-ws281x>=5.0.0; platform_machine == "aarch64"
 
 # GPIO for Physical Button (Raspberry Pi only - optional)
 RPi.GPIO>=0.7.1; platform_machine == "aarch64"
+evdev>=1.9.0; platform_machine == "aarch64"
 
 # Testing
 pytest>=7.4.0

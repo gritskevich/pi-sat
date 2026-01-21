@@ -6,7 +6,8 @@ Quick reference for common tasks.
 
 - **INSTALL.md** (root) – Hardware setup + installation
 - **DEPLOYMENT.md** (root) – Production deployment checklist
-- **pi-sat.sh** – `install`, `run`, `run_debug`, `download_voice`
+- **pi-sat.sh** – Main entrypoint (dispatcher for install/run/tools)
+- **scripts/pisat-*.sh** – Split modules: install, run, tools
 
 ## Development
 
@@ -16,8 +17,9 @@ Quick reference for common tasks.
 
 ## Technical Details
 
-- **docs/PIPELINE.md** – Complete flow diagram + config reference
+- **docs/PIPELINE.md** – Complete flow diagram + config reference (incl. USB buttons)
 - **docs/AUDIO.md** – Audio routing, volume architecture
+- **docs/EVENTS.md** – Event contract and payloads
 - **docs/WAKE_WORD_DETECTION.md** – Wake word tuning
 - **docs/PHONETIC_ALGORITHM_COMPARISON.md** – FONEM vs BeiderMorse benchmarks
 

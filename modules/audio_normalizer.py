@@ -27,10 +27,11 @@ Research sources:
 
 import numpy as np
 from typing import Optional
-from .logging_utils import setup_logger, log_debug, log_warning
+from .base_module import BaseModule
+from .logging_utils import log_debug, log_warning
 
 
-class AudioNormalizer:
+class AudioNormalizer(BaseModule):
     """
     Normalizes audio levels using RMS energy normalization.
 
@@ -38,7 +39,8 @@ class AudioNormalizer:
     """
 
     def __init__(self, target_rms: float = 3000.0, max_gain: float = 10.0,
-                 limiter_threshold: float = 28000.0, debug: bool = False):
+                 limiter_threshold: float = 28000.0, debug: bool = False,
+                 verbose: bool = True, event_bus=None):
         """
         Initialize audio normalizer.
 
@@ -48,11 +50,10 @@ class AudioNormalizer:
             limiter_threshold: Peak limiter threshold to prevent clipping (default: 28000)
             debug: Enable debug logging
         """
+        super().__init__(__name__, debug=debug, verbose=verbose, event_bus=event_bus)
         self.target_rms = float(target_rms)
         self.max_gain = float(max_gain)
         self.limiter_threshold = float(limiter_threshold)
-        self.debug = debug
-        self.logger = setup_logger(__name__, debug=debug)
 
     def calculate_rms(self, audio: np.ndarray) -> float:
         """

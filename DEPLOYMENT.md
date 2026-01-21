@@ -214,7 +214,7 @@ sudo systemctl status pi-sat
 
 **Verify:**
 - [ ] Service running: `systemctl --user is-active pi-sat` shows "active"
-- [ ] No errors in logs: `journalctl --user -u pi-sat -n 50 --no-pager`
+- [ ] No errors in logs: `journalctl _SYSTEMD_USER_UNIT=pi-sat.service -n 50 --no-pager`
 - [ ] Boot start enabled: `loginctl show-user $USER -p Linger` shows "Linger=yes"
 
 ### Disable Auto-Suspend (24/7 Operation)

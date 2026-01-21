@@ -1,0 +1,10 @@
+{
+  "simple_controls": [
+    {"intent": "pause", "raw_text": "arrête", "response_key": "pausing"},
+    {"intent": "continue", "raw_text": "reprends", "response_key": "resuming"}
+  ],
+  "volume_controls": [
+    {"intent": "volume_up", "raw_text": "plus fort", "response_key": "volume_up"},
+    {"intent": "volume_down", "raw_text": "moins fort", "response_key": "volume_down"}
+  ]
+}

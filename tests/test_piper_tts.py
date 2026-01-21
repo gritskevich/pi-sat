@@ -98,12 +98,13 @@ class TestPiperTTS(unittest.TestCase):
             result = tts.speak("Hello world")
 
         self.assertTrue(result)
-        self.assertEqual(mock_run.call_count, 1)
-        cmd = mock_run.call_args[0][0]
-        self.assertIn("piper", cmd)
-        self.assertIn("--model", cmd)
-        self.assertIn("--output-raw", cmd)
-        self.assertIn("aplay", cmd)
+        self.assertGreaterEqual(mock_run.call_count, 2)
+        first_cmd = mock_run.call_args_list[0][0][0]
+        self.assertTrue(str(first_cmd[0]).endswith("piper"))
+        self.assertIn("--model", first_cmd)
+        self.assertIn("--output-raw", first_cmd)
+        last_cmd = mock_run.call_args_list[-1][0][0]
+        self.assertTrue(any(player in last_cmd for player in ("aplay", "pw-play")))
 
     def test_generate_audio_returns_bytes(self):
         """Test generate_audio() returns raw audio bytes"""
@@ -158,16 +159,9 @@ class TestPiperTTS(unittest.TestCase):
 
         language = tts._responses.language
 
-        # Test simple templates
-        self.assertIn(tts.get_response_template('paused'), self._response_options(language, 'paused'))
-        self.assertIn(tts.get_response_template('skipped'), self._response_options(language, 'skipped'))
-
         # Test templates with parameters
         response = tts.get_response_template('playing_song', song="maman")
         self.assertIn(response, self._response_options(language, 'playing_song', song="maman"))
-
-        response = tts.get_response_template('sleep_timer', minutes=30)
-        self.assertIn(response, self._response_options(language, 'sleep_timer', minutes=30))
 
         # Test unknown intent
         response = tts.get_response_template('unknown_intent')
@@ -188,8 +182,7 @@ class TestPiperTTS(unittest.TestCase):
 
         # Test intents that don't need parameters
         simple_intents = [
-            'paused', 'skipped', 'previous', 'volume_up', 'volume_down',
-            'liked', 'favorites', 'no_match', 'error', 'stopped', 'unknown'
+            'volume_up', 'volume_down', 'no_match', 'error', 'stopped', 'unknown'
         ]
 
         for intent in simple_intents:

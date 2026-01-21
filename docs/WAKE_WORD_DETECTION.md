@@ -13,55 +13,54 @@ Wake word detection uses [OpenWakeWord](https://github.com/dscripka/openWakeWord
 ```python
 # config.py
 WAKE_WORD_MODELS = ['alexa_v0.1']           # Pre-trained Alexa model
-INFERENCE_FRAMEWORK = 'tflite'              # TFLite (optimized for Linux)
-THRESHOLD = 0.25                            # Detection threshold (0-1)
-VAD_THRESHOLD = 0.6                         # Voice Activity Detection (Silero VAD)
-ENABLE_SPEEX_NOISE_SUPPRESSION = true       # SpeexDSP noise reduction (ENABLED by default)
+INFERENCE_FRAMEWORK = 'onnx'                # ONNX Runtime only
+WAKE_WORD_THRESHOLD = 0.25                  # Detection threshold (0-1)
+WAKE_WORD_COOLDOWN = 0.5                    # Seconds between detections
 ```
 
-## OpenWakeWord Built-in Features
+## Detection Features
 
-### 1. **Speex Noise Suppression** ⭐ (ENABLED by default)
+### 1. **PipeWire Noise Suppression (WebRTC)** ⭐ (optional)
 
-**What it does**: Preprocesses audio to reduce constant background noise/music before prediction
+Uses PipeWire's `module-echo-cancel` with WebRTC processing to reduce background noise/music at the audio stack level.
 
-**Performance impact**: Minimal (lightweight algorithm)
-
-**Status**: Installed via requirements.txt, enabled by default
-
-**Impact**: Reduces both false-reject and false-accept rates during music playback
-
-**Disable** (if needed):
+**Enable**:
 ```bash
-export ENABLE_SPEEX=false
+scripts/enable_noise_suppression.sh
+export INPUT_DEVICE_NAME=PiSat-NS
 ```
 
-**Source**: [OpenWakeWord README](https://github.com/dscripka/openWakeWord/blob/main/README.md), [speexdsp-ns on PyPI](https://pypi.org/project/speexdsp-ns/)
+**Note**: This can break wake word detection with PyAudio (virtual source not visible).
+Use only for STT experiments, not production wake word.
 
-### 2. **Silero VAD (Voice Activity Detection)** ⭐ (ENABLED at 0.6)
+**Verify**:
+```bash
+pactl list sources short | grep -i PiSat-NS
+```
+
+**Source**:
+- PipeWire: https://github.com/PipeWire/pipewire
+- WebRTC audio processing: https://github.com/paullouisageneau/webrtc-audio-processing
+
+### 2. **Silero VAD (Voice Activity Detection)** ⭐ (fixed)
 
 **What it does**: Only allows predictions when speech is detected by VAD model
 
-**Current setting**: `VAD_THRESHOLD = 0.6` (balanced)
-
-**Tuning**:
-- `0.5` = More lenient (detects more as speech)
-- `0.6` = Balanced (recommended)
-- `0.7+` = Stricter (fewer false positives, may miss quiet speech)
+**Current setting**: fixed at `0.6` in code (not user-tunable)
 
 **Source**: [OpenWakeWord Discussion #4](https://github.com/dscripka/openWakeWord/discussions/4)
 
 ### 3. **Detection Threshold**
 
-**Current**: `THRESHOLD = 0.25` (sensitive)
+**Current**: `WAKE_WORD_THRESHOLD = 0.25` (sensitive)
 
 **Default**: OpenWakeWord models trained for `0.5` threshold
 
 **Tuning**:
 ```bash
-export THRESHOLD=0.20  # More sensitive (more false positives)
-export THRESHOLD=0.30  # Less sensitive (fewer false positives)
-export THRESHOLD=0.50  # Default (OpenWakeWord recommended)
+export WAKE_WORD_THRESHOLD=0.20  # More sensitive (more false positives)
+export WAKE_WORD_THRESHOLD=0.30  # Less sensitive (fewer false positives)
+export WAKE_WORD_THRESHOLD=0.50  # Default (OpenWakeWord recommended)
 ```
 
 ### 4. **Model Training**
@@ -98,25 +97,20 @@ When running with debug mode, you'll see real-time monitoring:
 
 **Solutions**:
 
-1. **Verify Speex is enabled** (should be by default):
+1. **Enable PipeWire noise suppression** (optional):
    ```bash
-   ./pi-sat.sh run
-   # Look for: "Speex noise suppression: ENABLED"
+   scripts/enable_noise_suppression.sh
+   export INPUT_DEVICE_NAME=PiSat-NS
    ```
 
 2. **Lower detection threshold**:
    ```bash
-   export THRESHOLD=0.20
+   export WAKE_WORD_THRESHOLD=0.20
    ```
 
-3. **Adjust VAD threshold**:
+3. **Check microphone volume** (should be ~30%):
    ```bash
-   export VAD_THRESHOLD=0.5  # More lenient
-   ```
-
-4. **Check microphone volume** (should be ~30%):
-   ```bash
-   ./fix_mic_volume.sh
+   pactl set-source-volume @DEFAULT_SOURCE@ 80%
    ```
 
 5. **Run debug mode** to see confidence scores:
@@ -131,28 +125,21 @@ When running with debug mode, you'll see real-time monitoring:
 
 1. **Increase detection threshold**:
    ```bash
-   export THRESHOLD=0.30  # or 0.35
+   export WAKE_WORD_THRESHOLD=0.30  # or 0.35
    ```
 
-2. **Increase VAD threshold**:
+2. **Enable PipeWire noise suppression** (optional, helps reduce false positives):
    ```bash
-   export VAD_THRESHOLD=0.7  # Stricter
-   ```
-
-3. **Verify Speex is enabled** (helps reduce false positives):
-   ```bash
-   ./pi-sat.sh run
-   # Should show: "Speex noise suppression: ENABLED"
+   scripts/enable_noise_suppression.sh
+   export INPUT_DEVICE_NAME=PiSat-NS
    ```
 
 ### Issue: Detection stops working after a few minutes
 
 **Potential causes**:
-- Model state drift (mitigated by periodic reset every 60s)
 - Stream buffer issues (mitigated by stream recreation after commands)
 
 **Our mitigations** (already implemented):
-- Periodic model state reset (every 60 seconds)
 - Stream recreation after each command
 - Buffer flushing
 
@@ -163,21 +150,22 @@ When running with debug mode, you'll see real-time monitoring:
 ### For Very Noisy Environments
 
 ```bash
-# Speex is already enabled by default
-# Adjust thresholds for noisier environments
-export VAD_THRESHOLD=0.6
-export THRESHOLD=0.30
+# Optional: enable PipeWire noise suppression
+scripts/enable_noise_suppression.sh
+export INPUT_DEVICE_NAME=PiSat-NS
+
+# Adjust threshold for noisier environments
+export WAKE_WORD_THRESHOLD=0.30
 
 # Verify microphone levels
-./fix_mic_volume.sh
+pactl set-source-volume @DEFAULT_SOURCE@ 80%
 ```
 
 ### For Quiet Environments
 
 ```bash
 # More sensitive settings
-export THRESHOLD=0.20
-export VAD_THRESHOLD=0.5
+export WAKE_WORD_THRESHOLD=0.20
 ```
 
 ### Testing Different Thresholds
@@ -189,7 +177,7 @@ Use debug mode to find optimal threshold:
 
 # Say "Alexa" multiple times at different volumes/distances
 # Watch the confidence scores
-# Set THRESHOLD to ~20% below typical detection scores
+# Set WAKE_WORD_THRESHOLD to ~20% below typical detection scores
 ```
 
 ## Audio Mixer Considerations
@@ -203,7 +191,7 @@ pactl list sources short
 
 **Set microphone volume**:
 ```bash
-./fix_mic_volume.sh  # Sets both USB mics to 30%
+pactl set-source-volume @DEFAULT_SOURCE@ 80%
 ```
 
 ## OpenWakeWord Parameters Not Used (But Available)
@@ -229,10 +217,9 @@ pactl list sources short
 ## Summary - What Makes Detection Robust
 
 ✅ **Already implemented**:
-- Speex noise suppression (enabled by default)
+- Optional PipeWire noise suppression (audio stack)
 - Silero VAD filtering (threshold 0.6)
 - Model trained on 30,000+ hours of noise/music
-- Periodic model state reset (every 60s)
 - Stream recreation after commands
 - Tunable thresholds
 
@@ -242,9 +229,9 @@ pactl list sources short
 - Helps identify optimal settings
 
 🎯 **Recommendation**:
-1. Keep current defaults (Speex enabled, VAD 0.6)
+1. Keep current defaults (VAD 0.6)
 2. Use debug mode to verify detection
-3. Adjust `THRESHOLD` based on environment
+3. Adjust `WAKE_WORD_THRESHOLD` based on environment
 4. Run `./fix_mic_volume.sh` to ensure optimal mic levels
 
 **Current configuration is optimized for music playback and background noise.**

@@ -2,6 +2,7 @@ import unittest
 import os
 import tempfile
 import shutil
+from unittest.mock import Mock
 from tests.test_utils import process_audio_file
 
 class TestErrorConditions(unittest.TestCase):
@@ -16,7 +17,11 @@ class TestErrorConditions(unittest.TestCase):
         except ModuleNotFoundError as e:
             raise unittest.SkipTest(f"Wake word dependency not installed: {e}")
 
-        cls.orchestrator = Orchestrator(verbose=False)
+        cls.orchestrator = Orchestrator(
+            command_processor=Mock(),
+            wake_word_listener=Mock(),
+            verbose=False,
+        )
         cls.listener = WakeWordListener()
     
     @classmethod
@@ -40,34 +45,46 @@ class TestErrorConditions(unittest.TestCase):
             shutil.rmtree(temp_dir)
     
     def test_orchestrator_double_stop(self):
-        orchestrator = Orchestrator(verbose=False)
+        orchestrator = Orchestrator(
+            command_processor=Mock(),
+            wake_word_listener=Mock(),
+            verbose=False,
+        )
         orchestrator.stop()
         orchestrator.stop()
         self.assertFalse(orchestrator.running)
     
     def test_wake_word_during_processing(self):
-        self.orchestrator.is_processing = True
-        self.orchestrator._on_wake_word_detected()
-        self.assertTrue(self.orchestrator.is_processing)
-        self.orchestrator.is_processing = False
+        orchestrator = Orchestrator(
+            command_processor=Mock(),
+            wake_word_listener=Mock(),
+            verbose=False,
+        )
+        orchestrator.is_processing = True
+        orchestrator._on_wake_word_detected()
+        orchestrator.command_processor.process_command.assert_not_called()
     
     def test_orchestrator_without_listener(self):
-        orchestrator = Orchestrator(verbose=False)
+        orchestrator = Orchestrator(
+            command_processor=Mock(),
+            wake_word_listener=Mock(),
+            verbose=False,
+        )
         orchestrator.wake_word_listener = None
         orchestrator.stop()
         self.assertFalse(orchestrator.running)
     
     def test_invalid_config_values(self):
         import config
-        original_threshold = config.THRESHOLD
+        original_threshold = config.WAKE_WORD_THRESHOLD
         
         try:
-            config.THRESHOLD = -1.0
+            config.WAKE_WORD_THRESHOLD = -1.0
             with self.assertRaises(ValueError):
-                if config.THRESHOLD < 0:
+                if config.WAKE_WORD_THRESHOLD < 0:
                     raise ValueError("Threshold cannot be negative")
         finally:
-            config.THRESHOLD = original_threshold
+            config.WAKE_WORD_THRESHOLD = original_threshold
 
 if __name__ == "__main__":
     unittest.main(verbosity=2) 

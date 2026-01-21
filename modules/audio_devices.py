@@ -1,6 +1,7 @@
 import pyaudio
 import subprocess
 from modules.logging_utils import setup_logger
+from modules.alsa_utils import suppress_alsa_errors, suppress_jack_autostart, suppress_stderr
 
 logger = setup_logger(__name__)
 
@@ -8,11 +9,16 @@ logger = setup_logger(__name__)
 def find_input_device_index(name_substring):
     if not name_substring:
         return None
-    p = pyaudio.PyAudio()
+    suppress_alsa_errors()
+    suppress_jack_autostart()
+    with suppress_stderr():
+        p = pyaudio.PyAudio()
     try:
-        count = p.get_device_count()
+        with suppress_stderr():
+            count = p.get_device_count()
         for i in range(count):
-            info = p.get_device_info_by_index(i)
+            with suppress_stderr():
+                info = p.get_device_info_by_index(i)
             if int(info.get("maxInputChannels", 0)) > 0:
                 name = info.get("name", "")
                 if name_substring.lower() in name.lower():
@@ -25,11 +31,16 @@ def find_input_device_index(name_substring):
 def find_output_device_index(name_substring):
     if not name_substring:
         return None
-    p = pyaudio.PyAudio()
+    suppress_alsa_errors()
+    suppress_jack_autostart()
+    with suppress_stderr():
+        p = pyaudio.PyAudio()
     try:
-        count = p.get_device_count()
+        with suppress_stderr():
+            count = p.get_device_count()
         for i in range(count):
-            info = p.get_device_info_by_index(i)
+            with suppress_stderr():
+                info = p.get_device_info_by_index(i)
             if int(info.get("maxOutputChannels", 0)) > 0:
                 name = info.get("name", "")
                 if name_substring.lower() in name.lower():
@@ -40,9 +51,13 @@ def find_output_device_index(name_substring):
 
 
 def list_devices():
-    p = pyaudio.PyAudio()
+    suppress_alsa_errors()
+    suppress_jack_autostart()
+    with suppress_stderr():
+        p = pyaudio.PyAudio()
     try:
-        return [p.get_device_info_by_index(i) for i in range(p.get_device_count())]
+        with suppress_stderr():
+            return [p.get_device_info_by_index(i) for i in range(p.get_device_count())]
     finally:
         p.terminate()
 
@@ -130,5 +145,4 @@ def get_default_alsa_device():
     # Fallback to 'default' if none validated
     logger.warning("Could not validate any ALSA device, using 'default'")
     return 'default'
-
 

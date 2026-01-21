@@ -24,6 +24,8 @@ arecord -l
 
 Canonical checklist: `docs/AUDIO.md`.
 
+If TTS is silent, ensure PipeWire playback uses raw PCM (`pw-play --raw`).
+
 Quick sanity:
 ```bash
 aplay -D default -q resources/beep-short.wav
@@ -49,7 +51,7 @@ systemctl --user status pipewire pipewire-pulse wireplumber
 ## Wake Word Problems
 
 - Tune in `config.py`:
-  - `THRESHOLD` (wake sensitivity)
+  - `WAKE_WORD_THRESHOLD` (wake sensitivity)
   - `WAKE_WORD_COOLDOWN` (ignore activations after one fires; default is 3s)
 - Feedback loop fixes:
   - Lower `VOLUME_DUCK_LEVEL` (even `0`)

@@ -58,7 +58,7 @@ class CommandValidator:
                 return self._validate_play_music(params)
 
             # Simple controls - always valid
-            elif intent_type in ['pause', 'resume', 'stop', 'next', 'previous']:
+            elif intent_type in ['pause', 'resume', 'continue', 'next', 'previous']:
                 return self._validate_simple_control(intent_type)
 
             # Volume controls - always valid
@@ -146,7 +146,7 @@ class CommandValidator:
         song_name = os.path.splitext(best_match)[0]
 
         # Reject very low confidence matches (likely wrong song)
-        if confidence < 0.5:
+        if confidence < 0.4:
             return ValidationResult.invalid(
                 message=self._get_message('no_music_found', query=query)
             )
@@ -171,7 +171,7 @@ class CommandValidator:
         message_keys = {
             'pause': 'pausing',
             'resume': 'resuming',
-            'stop': 'stopping',
+            'continue': 'resuming',
             'next': 'next_song',
             'previous': 'previous_song'
         }
