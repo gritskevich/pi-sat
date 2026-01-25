@@ -1,6 +1,8 @@
 import numpy as np
 import sys
 import time
+import threading
+import queue
 import config
 from modules.base_module import BaseModule
 from modules.logging_utils import log_info, log_success, log_warning, log_error, log_debug, log_wake
@@ -75,6 +77,7 @@ class WakeWordListener(BaseModule):
         self._above_threshold_counts = {}
         self._pending_stream_reopen = False
         self._pending_stream_reopen_at = 0.0
+        self._audio_queue = queue.Queue(maxsize=50)  # Buffer for callback mode
         if self.event_bus:
             self.event_bus.subscribe(EVENT_RECORDING_FINISHED, self._on_recording_finished)
 
@@ -92,15 +95,24 @@ class WakeWordListener(BaseModule):
 
     def _flush_stream_buffer(self):
         """Drop any buffered audio collected while command processing blocked detection."""
-        if not self.stream:
-            return
+        # Clear audio queue (callback mode)
+        dropped = 0
+        while not self._audio_queue.empty():
+            try:
+                self._audio_queue.get_nowait()
+                dropped += 1
+            except queue.Empty:
+                break
+        if dropped > 0:
+            log_debug(self.logger, f"Flushed {dropped} audio frames from queue")
+
+    def _audio_callback(self, in_data, frame_count, time_info, status):
+        """Callback for non-blocking audio stream. Puts data in queue."""
         try:
-            if hasattr(self.stream, "get_read_available"):
-                available = int(self.stream.get_read_available())
-                if available > 0:
-                    self.stream.read(available, exception_on_overflow=False)
-        except Exception as e:
-            log_debug(self.logger, f"Failed to flush stream buffer: {e}")
+            self._audio_queue.put_nowait(in_data)
+        except queue.Full:
+            pass  # Drop frame if queue is full
+        return (None, pyaudio.paContinue)
 
     def _recreate_stream(self) -> bool:
         if pyaudio is None:
@@ -116,6 +128,13 @@ class WakeWordListener(BaseModule):
                     with suppress_stderr():
                         self.p = pyaudio.PyAudio()
 
+                # Clear audio queue before recreating stream
+                while not self._audio_queue.empty():
+                    try:
+                        self._audio_queue.get_nowait()
+                    except queue.Empty:
+                        break
+
                 with suppress_stderr():
                     self.stream = self.p.open(
                         format=getattr(pyaudio, config.FORMAT),
@@ -123,11 +142,12 @@ class WakeWordListener(BaseModule):
                         rate=self._input_rate,
                         input=True,
                         input_device_index=getattr(self, "_input_device_index", None),
-                        frames_per_buffer=config.CHUNK
+                        frames_per_buffer=config.CHUNK,
+                        stream_callback=self._audio_callback
                     )
+                self.stream.start_stream()
 
                 self._resample_buf = np.zeros(0, dtype=np.int16)
-                self._flush_stream_buffer()
 
                 log_debug(self.logger, "Audio stream recreated successfully")
                 stream_recreated = True
@@ -164,11 +184,12 @@ class WakeWordListener(BaseModule):
                     rate=target_rate,
                     input=True,
                     input_device_index=self._input_device_index,
-                    frames_per_buffer=config.CHUNK
+                    frames_per_buffer=config.CHUNK,
+                    stream_callback=self._audio_callback
                 )
             self._input_rate = target_rate
+            self.stream.start_stream()
             time.sleep(0.1)
-            self._flush_stream_buffer()
         except Exception as e:
             log_warning(self.logger, f"Failed to open stream at {target_rate}Hz, trying fallback: {e}")
             try:
@@ -188,11 +209,12 @@ class WakeWordListener(BaseModule):
                     rate=fallback_rate,
                     input=True,
                     input_device_index=self._input_device_index,
-                    frames_per_buffer=config.CHUNK
+                    frames_per_buffer=config.CHUNK,
+                    stream_callback=self._audio_callback
                 )
             self._input_rate = fallback_rate
+            self.stream.start_stream()
             time.sleep(0.1)
-            self._flush_stream_buffer()
         
         log_info(self.logger, "Wake word listener started...")
 
@@ -215,17 +237,21 @@ class WakeWordListener(BaseModule):
                     time.sleep(0.01)
                     continue
 
-                data = self.stream.read(config.CHUNK, exception_on_overflow=False)
+                # Non-blocking read from queue (allows Ctrl+C to work)
+                try:
+                    data = self._audio_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue  # Check self.running and retry
+
                 audio = np.frombuffer(data, dtype=np.int16)
 
                 if getattr(self, "_input_rate", target_rate) != model_rate and audio.size > 0:
-                    src = audio.astype(np.float32)
-                    src_len = src.shape[0]
-                    ratio = model_rate / float(self._input_rate)
-                    new_len = max(1, int(round(src_len * ratio)))
-                    x_old = np.linspace(0.0, 1.0, num=src_len, dtype=np.float32)
-                    x_new = np.linspace(0.0, 1.0, num=new_len, dtype=np.float32)
-                    resampled = np.interp(x_new, x_old, src)
+                    from scipy.signal import resample_poly
+                    from math import gcd
+                    g = gcd(model_rate, self._input_rate)
+                    up = model_rate // g
+                    down = self._input_rate // g
+                    resampled = resample_poly(audio.astype(np.float32), up, down)
                     audio = np.clip(resampled, -32768, 32767).astype(np.int16)
 
                 if audio.size > 0:
@@ -314,7 +340,15 @@ class WakeWordListener(BaseModule):
                             
             except KeyboardInterrupt:
                 break
+            except OSError as e:
+                # Stream closed by signal handler - exit cleanly
+                if not self.running:
+                    break
+                log_error(self.logger, f"Wake word listener OS error: {e}")
+                time.sleep(0.1)
             except Exception as e:
+                if not self.running:
+                    break
                 log_error(self.logger, f"Wake word listener error: {e}")
                 try:
                     self._resample_buf = np.zeros(0, dtype=np.int16)
@@ -332,10 +366,17 @@ class WakeWordListener(BaseModule):
     def stop_listening(self):
         self.running = False
         if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
+            try:
+                self.stream.stop_stream()
+                self.stream.close()
+            except Exception:
+                pass
+            self.stream = None
         if self.p:
-            self.p.terminate()
+            try:
+                self.p.terminate()
+            except Exception:
+                pass
             self.p = None
         log_info(self.logger, "Wake word listener stopped.")
 

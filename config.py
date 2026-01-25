@@ -23,17 +23,25 @@ RATE = 48000
 SAMPLE_RATE = 16000
 DEBUG_DUMMY_AUDIO = _env_bool('DEBUG_DUMMY_AUDIO', False)
 INPUT_DEVICE_NAME = _env_str('INPUT_DEVICE_NAME', 'USB Microphone')
-OUTPUT_ALSA_DEVICE = _env_str('OUTPUT_ALSA_DEVICE', _env_str('PIPER_OUTPUT_DEVICE', 'default'))
+OUTPUT_ALSA_DEVICE = _env_str('OUTPUT_ALSA_DEVICE', _env_str('PIPER_OUTPUT_DEVICE', 'pipewire'))
 PLAY_WAKE_SOUND = True
 WAKE_SOUND_PATH = _env_str('WAKE_SOUND_PATH', f'{PROJECT_ROOT}/resources/beep-short.wav')
 WAKE_SOUND_SKIP_SECONDS = _env_float('WAKE_SOUND_SKIP', 0.0)
 
 # Wake word
-WAKE_WORD_MODELS = [f'{PROJECT_ROOT}/resources/wakewords/coucou_eris.onnx']
+# Dual models: classic alexa + custom v2
+_WAKE_WORD_DUAL = _env_bool('WAKE_WORD_DUAL', True)  # Both models by default
+WAKE_WORD_MODELS = (
+    ['alexa', f'{PROJECT_ROOT}/resources/wakewords/alexa_custom_v2.onnx']
+    if _WAKE_WORD_DUAL else
+    [f'{PROJECT_ROOT}/resources/wakewords/alexa_custom_v2.onnx']
+)
 INFERENCE_FRAMEWORK = 'onnx'
-WAKE_WORD_THRESHOLD = _env_float('WAKE_WORD_THRESHOLD', 0.14)
+WAKE_WORD_THRESHOLD = _env_float('WAKE_WORD_THRESHOLD', 0.18)
 WAKE_WORD_MIN_CONSECUTIVE = _env_int('WAKE_WORD_MIN_CONSECUTIVE', 3)
 WAKE_WORD_COOLDOWN = _env_float('WAKE_WORD_COOLDOWN', 0.5)
+WAKE_WORD_TARGET_RMS = _env_float('WAKE_WORD_TARGET_RMS', 5000.0)
+WAKE_WORD_MAX_GAIN = _env_float('WAKE_WORD_MAX_GAIN', 10.0)
 
 # Recording
 VAD_LEVEL = 1

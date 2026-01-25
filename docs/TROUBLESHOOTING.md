@@ -81,6 +81,19 @@ mpd --kill || true
 ./pi-sat.sh run
 ```
 
+## System Freeze (No Ctrl+C) - FIXED
+
+**Symptom**: Pi-Sat unresponsive, Ctrl+C doesn't work.
+
+**Root cause**: PipeWire suspends audio sources. Blocking `stream.read()` waits forever.
+
+**Fix (2026-01-25)**: Switched to PyAudio callback mode - audio pushed to queue, main loop reads with timeout.
+
+**If freeze still occurs**:
+```bash
+pkill -9 -f "python.*orchestrator"
+```
+
 ## See Also
 
 - `docs/AUDIO.md`

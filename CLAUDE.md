@@ -3,7 +3,7 @@
 **Offline voice music player for kids** | Raspberry Pi 5 + Hailo-8L
 
 ```
-Wake ("Coucou Eris") → Record (VAD) → STT (Hailo Whisper) → Intent → MPD → TTS (Piper)
+Wake ("Alexa" custom) → Record (VAD) → STT (Hailo Whisper) → Intent → MPD → TTS (Piper)
 ```
 
 ## Fast Commands
@@ -41,7 +41,7 @@ pytest tests/ -q       # Test
 | Component | File | Notes |
 |-----------|------|-------|
 | Lifecycle | `modules/orchestrator.py` | Main loop |
-| Wake word | `modules/wake_word.py` | Stream recreated per cycle (critical!) |
+| Wake word | `modules/wake_word_listener.py` | Dual models (alexa + custom), callback mode |
 | STT | `modules/hailo_stt.py` | Hailo Whisper pipeline |
 | STT (CPU) | `modules/cpu_stt.py` | faster-whisper fallback (dev) |
 | Intents | `modules/intent_engine.py` | Dictionary-driven (intent_dictionary.json) |
