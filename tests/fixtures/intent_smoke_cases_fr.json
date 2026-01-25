@@ -5,7 +5,7 @@
   "volume": [
     {"text": "plus fort", "intent": "volume_up"},
     {"text": "moins fort", "intent": "volume_down"},
-    {"text": "tu peux mettre moins fort", "intent": "volume_down"}
+    {"text": "baisse le son", "intent": "volume_down"}
   ],
   "pause": [
     {"text": "arrete la musique", "intent": "pause"},

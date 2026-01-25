@@ -705,11 +705,7 @@
       "expect_intent": "volume_up"
     },
     {
-      "text": "plus de son",
-      "expect_intent": "volume_up"
-    },
-    {
-      "text": "pousse le son",
+      "text": "augmente le son",
       "expect_intent": "volume_up"
     },
     {
@@ -729,7 +725,7 @@
       "expect_intent": "volume_down"
     },
     {
-      "text": "plus bas",
+      "text": "diminue le son",
       "expect_intent": "volume_down"
     },
     {

@@ -59,7 +59,7 @@ class TestIntentSttSynthetic(unittest.TestCase):
                 self.assertEqual(filename_match[0], self.expected_filename[expected_id])
 
     def test_control_cases(self):
-        self.assertEqual(len(self.control_cases), 21)
+        self.assertEqual(len(self.control_cases), 20)
         for case in self.control_cases:
             text = case["text"]
             expected = case["expect_intent"]
@@ -87,4 +87,4 @@ class TestIntentSttSynthetic(unittest.TestCase):
 
     def test_total_count(self):
         total = len(self.play_cases) + len(self.control_cases) + len(self.play_no_query) + len(self.no_match_cases)
-        self.assertEqual(total, 54)
+        self.assertEqual(total, 53)

@@ -71,32 +71,10 @@ def play_wake_sound():
 
     device = getattr(config, "OUTPUT_ALSA_DEVICE", None)
 
-    # Prefer PipeWire native playback when available; fallback to PulseAudio/ALSA.
-    if device in ("pulse", "pipewire") and shutil.which("pw-play"):
-        # PipeWire can drop ultra-short sounds when the sink is idle.
-        # Add leading/trailing silence and repeat 3x to wake the sink reliably.
-        if shutil.which("sox"):
-            sox_proc = subprocess.run(
-                ["sox", path, "-t", "raw", "-r", "48000", "-e", "signed", "-b", "16", "-c", "1", "-", "repeat", "2", "pad", "0.03", "0.05"],
-                capture_output=True,
-                timeout=2
-            )
-            if sox_proc.returncode != 0:
-                err = sox_proc.stderr.decode("utf-8", errors="replace").strip()
-                log_warning(logger, f"Wake sound sox failed: {err}")
-                return
-            play_proc = subprocess.run(
-                ["pw-play", "--format", "s16", "--rate", "48000", "--channels", "1", "--volume", "1.0", "-"],
-                input=sox_proc.stdout,
-                capture_output=True,
-                timeout=2
-            )
-            if play_proc.returncode != 0:
-                err = play_proc.stderr.decode("utf-8", errors="replace").strip()
-                log_warning(logger, f"Wake sound pw-play failed: {err}")
-            return
-        cmd_parts = ["pw-play", "--volume", "1.0", path]
-        play_repeats = 3
+    # Prefer paplay for PipeWire/PulseAudio - simple and reliable
+    if device in ("pulse", "pipewire") and shutil.which("paplay"):
+        cmd_parts = ["paplay", "--volume=65536", path]
+        play_repeats = 2
         play_data = None
     elif device == "pulse":
         if shutil.which("sox"):

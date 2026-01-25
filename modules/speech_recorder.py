@@ -358,12 +358,13 @@ class SpeechRecorder(BaseModule):
                 frames.append(data)
 
                 if rate != vad_rate:
+                    from scipy.signal import resample_poly
+                    from math import gcd
                     audio_48k = np.frombuffer(data, dtype=np.int16)
-                    ratio = vad_rate / float(rate)
-                    new_len = int(len(audio_48k) * ratio)
-                    x_old = np.linspace(0, 1, len(audio_48k), dtype=np.float32)
-                    x_new = np.linspace(0, 1, new_len, dtype=np.float32)
-                    audio_16k = np.interp(x_new, x_old, audio_48k.astype(np.float32))
+                    g = gcd(vad_rate, rate)
+                    up = vad_rate // g
+                    down = rate // g
+                    audio_16k = resample_poly(audio_48k.astype(np.float32), up, down)
                     audio_16k = np.clip(audio_16k, -32768, 32767).astype(np.int16)
 
                     if len(audio_16k) < frame_size_16k:

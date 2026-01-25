@@ -91,12 +91,12 @@ def _resample_int16_linear(samples: np.ndarray, src_rate: int, dst_rate: int) ->
     if src_rate == dst_rate or samples.size == 0:
         return samples.astype(np.int16, copy=False)
 
-    src = samples.astype(np.float32)
-    ratio = dst_rate / float(src_rate)
-    new_len = max(1, int(round(src.size * ratio)))
-    x_old = np.linspace(0.0, 1.0, num=src.size, dtype=np.float32)
-    x_new = np.linspace(0.0, 1.0, num=new_len, dtype=np.float32)
-    resampled = np.interp(x_new, x_old, src)
+    from scipy.signal import resample_poly
+    from math import gcd
+    g = gcd(dst_rate, src_rate)
+    up = dst_rate // g
+    down = src_rate // g
+    resampled = resample_poly(samples.astype(np.float32), up, down)
     return np.clip(resampled, -32768, 32767).astype(np.int16)
 
 

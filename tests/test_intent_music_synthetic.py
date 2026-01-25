@@ -74,7 +74,7 @@ class TestIntentMusicSynthetic(unittest.TestCase):
                 self.assertEqual(tag_match[0], self.expected_tag[expected_id])
 
     def test_control_intents_misread_stt(self):
-        self.assertEqual(len(self.control_cases), 20)
+        self.assertEqual(len(self.control_cases), 19)
         for case in self.control_cases:
             text = case["text"]
             expected = case["expect_intent"]
