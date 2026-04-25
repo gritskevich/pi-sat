@@ -1,23 +1,20 @@
 [Unit]
 Description=Pi-Sat Voice-Controlled Music Player
-After=network.target sound.target user@1000.service
-Requires=user@1000.service
+# User-level unit. Install: ~/.config/systemd/user/pi-sat.service
+# Enable autostart at boot: requires `loginctl enable-linger dmitry`.
+# Audio (PipeWire), MPD, and orchestrator all live in the same user manager,
+# so XDG_RUNTIME_DIR / PULSE_SERVER are inherited and don't need to be set.
+After=mpd.service sound.target
+Wants=mpd.service
 
 [Service]
 Type=simple
-User=dmitry
 WorkingDirectory=/home/dmitry/pi-sat
-Environment="PATH=/home/dmitry/pi-sat/venv/bin:/usr/local/bin:/usr/bin:/bin"
-# NOTE: %U expands to the *manager* UID (0 for system services), not User=.
-# Hardcode UID 1000 (dmitry) so PipeWire/PulseAudio is reachable.
-Environment="XDG_RUNTIME_DIR=/run/user/1000"
-Environment="PULSE_SERVER=unix:/run/user/1000/pulse/native"
 Environment="PYTHONUNBUFFERED=1"
 
-# pi-sat.sh run ensures user-level MPD is started before the orchestrator connects
+# pi-sat.sh run ensures MPD is up before the orchestrator connects (defense in depth)
 ExecStart=/home/dmitry/pi-sat/pi-sat.sh run
 
-# Automatic restart on crash
 Restart=always
 RestartSec=5
 
@@ -25,14 +22,9 @@ RestartSec=5
 KillSignal=SIGINT
 TimeoutStopSec=30
 
-# Resource limits (optional kid-safety)
-# LimitNOFILE=1024
-# MemoryMax=512M
-
-# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=pi-sat
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

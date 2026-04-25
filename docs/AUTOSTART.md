@@ -1,38 +1,37 @@
 # Auto-Start Configuration
 
-Pi-Sat can automatically start on boot using systemd.
+Pi-Sat auto-starts on boot via a **systemd user service** under `dmitry`.
 
-## Systemd Service
+## Why user-level (not system)
 
-Service file: `/etc/systemd/system/pi-sat.service` (source of truth: `pi-sat.service` in repo root).
+| Reason | Detail |
+|---|---|
+| Audio is per-user | PipeWire/WirePlumber/MPD all live in `user@1000` — user unit inherits env (no `XDG_RUNTIME_DIR`/`PULSE_SERVER` workarounds). |
+| No `%U` UID gotcha | In a system unit, `%U` expands to 0 (manager UID), not `User=` UID — silently broke MAX_VOLUME volume control. |
+| Natural ordering | `Wants=mpd.service` resolves to user MPD directly, no `Requires=user@1000.service` chain. |
+| Single-user appliance | Convention favors system services; function favors user. |
 
-The unit runs as **system service** with `User=dmitry`. `loginctl enable-linger dmitry`
-is required so `/run/user/1000` (PipeWire/PulseAudio socket) exists at boot.
+Boot autostart works because `loginctl enable-linger dmitry` keeps `user@1000` alive at boot.
+
+## Service File
+
+Source of truth: `pi-sat.service` in repo root. Installed at `~/.config/systemd/user/pi-sat.service`.
 
 ```ini
 [Unit]
 Description=Pi-Sat Voice-Controlled Music Player
-After=network.target sound.target user@1000.service
-Requires=user@1000.service
+After=mpd.service sound.target
+Wants=mpd.service
 
 [Service]
 Type=simple
-User=dmitry
 WorkingDirectory=/home/dmitry/pi-sat
-Environment="PATH=/home/dmitry/pi-sat/venv/bin:/usr/local/bin:/usr/bin:/bin"
-# NOTE: %U expands to the *manager* UID (0 for system services), not User=.
-# Hardcode UID 1000 (dmitry) so PipeWire/PulseAudio is reachable.
-Environment="XDG_RUNTIME_DIR=/run/user/1000"
-Environment="PULSE_SERVER=unix:/run/user/1000/pulse/native"
 Environment="PYTHONUNBUFFERED=1"
-
-# pi-sat.sh run ensures user-level MPD is started before the orchestrator connects
 ExecStart=/home/dmitry/pi-sat/pi-sat.sh run
 
 Restart=always
 RestartSec=5
 
-# Graceful shutdown (CTRL+C equivalent)
 KillSignal=SIGINT
 TimeoutStopSec=30
 
@@ -41,101 +40,74 @@ StandardError=journal
 SyslogIdentifier=pi-sat
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 ```
 
-**Notes:**
-- `Requires=user@1000.service` chains the user manager (PipeWire/WirePlumber/MPD live there).
-- MPD runs as a **user** unit (`systemctl --user status mpd`), not a system unit. `pi-sat.sh run` calls `ensure_mpd()` as a safety net.
-- `Restart=always` masks transient USB enumeration races at boot.
+`pi-sat.sh run` calls `ensure_mpd()` as a defense-in-depth safety net in case user MPD isn't up.
+
+## Installation
+
+One-time setup (linger + install):
+
+```bash
+sudo loginctl enable-linger "$USER"
+mkdir -p ~/.config/systemd/user
+cp /home/dmitry/pi-sat/pi-sat.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now pi-sat.service
+```
+
+⚠️ Do NOT also install at `/etc/systemd/system/pi-sat.service` — both would race for `/dev/hailo0` (single VDevice) and one fails with `HAILO_OUT_OF_PHYSICAL_DEVICES`.
 
 ## Commands
 
 ```bash
-# Enable auto-start on boot
-sudo systemctl enable pi-sat
+# Status / logs
+systemctl --user status pi-sat
+journalctl --user -u pi-sat -f          # live
+journalctl --user -u pi-sat -n 100      # last 100 lines
 
-# Start service now
-sudo systemctl start pi-sat
+# Lifecycle
+systemctl --user start pi-sat
+systemctl --user stop pi-sat
+systemctl --user restart pi-sat
 
-# Stop service
-sudo systemctl stop pi-sat
-
-# Restart service
-sudo systemctl restart pi-sat
-
-# Check status
-sudo systemctl status pi-sat
-
-# View logs (live)
-sudo journalctl -u pi-sat -f
-
-# View logs (last 100 lines)
-sudo journalctl -u pi-sat -n 100
-
-# Disable auto-start
-sudo systemctl disable pi-sat
+# Autostart
+systemctl --user enable pi-sat          # on
+systemctl --user disable pi-sat         # off
 ```
 
-## Installation
-
-The systemd service can be installed via the installer:
-
-```bash
-./pi-sat.sh install
-```
-
-Or manually:
-
-```bash
-sudo cp /path/to/pi-sat.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable pi-sat
-```
+No `sudo` needed for any of these.
 
 ## Troubleshooting
 
 ### Service won't start
 
-Check logs:
 ```bash
-sudo journalctl -u pi-sat -n 50
+journalctl --user -u pi-sat -n 50
 ```
 
 Common issues:
-- Hailo driver not loaded: `lsmod | grep hailo`
+- Hailo driver not loaded: `lsmod | grep hailo`, `ls /dev/hailo0`
 - Audio devices not ready: `aplay -l && arecord -l`
-- MPD not running: `systemctl status mpd`
+- MPD not running: `systemctl --user status mpd`
+- **Two pi-sat units**: check `ls /etc/systemd/system/pi-sat.service` — must NOT exist.
 
-### Restart after crash
+### `HAILO_OUT_OF_PHYSICAL_DEVICES`
 
-The service is configured with `Restart=on-failure` and will automatically restart if it crashes.
+A second pi-sat (or another Hailo client) is already holding `/dev/hailo0`. Kill duplicates: `pgrep -fa orchestrator.py`.
 
-## Hailo Driver Auto-Load
+### Hailo driver auto-load
 
-The Hailo PCIe driver must be loaded before Pi-Sat starts.
+Required at boot — verified entry in `/etc/modules`:
 
-Add to `/etc/modules`:
 ```
 hailo_pci
 ```
 
-Verify:
-```bash
-lsmod | grep hailo
-ls -l /dev/hailo0
-```
-
-## Manual Testing
-
-To test without systemd:
+## Manual Testing (without systemd)
 
 ```bash
-./pi-sat.sh run
-```
-
-Or with debug mode:
-
-```bash
-./pi-sat.sh run_debug
+./pi-sat.sh run         # foreground
+./pi-sat.sh run_debug   # foreground + RMS + confidence scores
 ```
