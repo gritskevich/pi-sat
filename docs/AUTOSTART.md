@@ -4,28 +4,50 @@ Pi-Sat can automatically start on boot using systemd.
 
 ## Systemd Service
 
-Service file: `/etc/systemd/system/pi-sat.service`
+Service file: `/etc/systemd/system/pi-sat.service` (source of truth: `pi-sat.service` in repo root).
+
+The unit runs as **system service** with `User=dmitry`. `loginctl enable-linger dmitry`
+is required so `/run/user/1000` (PipeWire/PulseAudio socket) exists at boot.
 
 ```ini
 [Unit]
-Description=Pi-Sat Voice Assistant
-After=network.target sound.target mpd.service
-Requires=sound.target
+Description=Pi-Sat Voice-Controlled Music Player
+After=network.target sound.target user@1000.service
+Requires=user@1000.service
 
 [Service]
 Type=simple
 User=dmitry
 WorkingDirectory=/home/dmitry/pi-sat
+Environment="PATH=/home/dmitry/pi-sat/venv/bin:/usr/local/bin:/usr/bin:/bin"
+# NOTE: %U expands to the *manager* UID (0 for system services), not User=.
+# Hardcode UID 1000 (dmitry) so PipeWire/PulseAudio is reachable.
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+Environment="PULSE_SERVER=unix:/run/user/1000/pulse/native"
+Environment="PYTHONUNBUFFERED=1"
+
+# pi-sat.sh run ensures user-level MPD is started before the orchestrator connects
 ExecStart=/home/dmitry/pi-sat/pi-sat.sh run
-Restart=on-failure
-RestartSec=5s
+
+Restart=always
+RestartSec=5
+
+# Graceful shutdown (CTRL+C equivalent)
+KillSignal=SIGINT
+TimeoutStopSec=30
+
 StandardOutput=journal
 StandardError=journal
-Environment="PYTHONUNBUFFERED=1"
+SyslogIdentifier=pi-sat
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+**Notes:**
+- `Requires=user@1000.service` chains the user manager (PipeWire/WirePlumber/MPD live there).
+- MPD runs as a **user** unit (`systemctl --user status mpd`), not a system unit. `pi-sat.sh run` calls `ensure_mpd()` as a safety net.
+- `Restart=always` masks transient USB enumeration races at boot.
 
 ## Commands
 

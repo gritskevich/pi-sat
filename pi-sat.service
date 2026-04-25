@@ -1,18 +1,21 @@
 [Unit]
 Description=Pi-Sat Voice-Controlled Music Player
-After=network.target sound.target mpd.service
-Wants=mpd.service
+After=network.target sound.target user@1000.service
+Requires=user@1000.service
 
 [Service]
 Type=simple
 User=dmitry
 WorkingDirectory=/home/dmitry/pi-sat
 Environment="PATH=/home/dmitry/pi-sat/venv/bin:/usr/local/bin:/usr/bin:/bin"
-Environment="XDG_RUNTIME_DIR=/run/user/%U"
-Environment="PULSE_SERVER=unix:/run/user/%U/pulse/native"
+# NOTE: %U expands to the *manager* UID (0 for system services), not User=.
+# Hardcode UID 1000 (dmitry) so PipeWire/PulseAudio is reachable.
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+Environment="PULSE_SERVER=unix:/run/user/1000/pulse/native"
+Environment="PYTHONUNBUFFERED=1"
 
-# Use venv Python with unbuffered output for better logging
-ExecStart=/home/dmitry/pi-sat/venv/bin/python -u modules/orchestrator.py
+# pi-sat.sh run ensures user-level MPD is started before the orchestrator connects
+ExecStart=/home/dmitry/pi-sat/pi-sat.sh run
 
 # Automatic restart on crash
 Restart=always
