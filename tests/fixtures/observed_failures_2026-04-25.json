@@ -1,5 +1,5 @@
 {
-  "description": "Real STT outputs captured from kid-driven live use on 2026-04-25. Each case carries the heard text plus the human-decoded ground-truth intent and (when known) the song the kid wanted. Cases with song=null are intent-only (truncated speech or unknowable target). Used as a regression dataset; pass count should monotonically increase as we ship fixes.",
+  "description": "Real STT outputs captured from kid-driven live use on 2026-04-25. Each case carries the heard text plus the human-decoded ground-truth intent and (when known) the song the kid wanted. Cases with song=null are intent-only (truncated speech or unknowable target). Used as a regression dataset; pass count should monotonically increase as we ship fixes. A second `cluster_mined_cases` block holds auto-extracted cases via scripts/extract_observed_failures.py: when the kid retried within 60s and the cluster's final attempt eventually matched a song with ≥70% confidence, the *prior* failed attempts in the cluster are labeled with that song as their inferred ground truth.",
   "captured_at": "2026-04-25",
   "catalog": [
     "A Journey to Hogwarts.mp3",
@@ -308,6 +308,64 @@
       "intent": "play_music",
       "song": "NO BATIDÃO - ZXKAI.mp3",
       "cat": "F3"
+    }
+  ],
+  "cluster_mined_cases": [
+    {
+      "n": 31,
+      "text": "\"Me\" no baté de l'autre.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F1+F3",
+      "source": "cluster:3 anchor=80.8%"
+    },
+    {
+      "n": 32,
+      "text": "10 mètres de bâtido.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3",
+      "source": "cluster:3 anchor=80.8%"
+    },
+    {
+      "n": 33,
+      "text": "Tu peux n'est ce que tu pènes n'est pas t il sur la batte ?",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3",
+      "source": "cluster:11 anchor=74.8%"
+    },
+    {
+      "n": 34,
+      "text": "Je te le disais, mais t'es pas une bonne journée.",
+      "intent": "play_music",
+      "song": "Les dormantes.mp3",
+      "cat": "F2",
+      "source": "cluster:13 anchor=82%"
+    },
+    {
+      "n": 35,
+      "text": "Tu t'es là? Nettent pas d'autres nott.",
+      "intent": "play_music",
+      "song": "Les dormantes.mp3",
+      "cat": "F2",
+      "source": "cluster:13 anchor=82%"
+    },
+    {
+      "n": 36,
+      "text": "J'ai pu peinté, mais je ne le dis.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3",
+      "source": "cluster:22 anchor=92%"
+    },
+    {
+      "n": 37,
+      "text": "Tu peux laître non battie dans?",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3",
+      "source": "cluster:22 anchor=92%"
     }
   ]
 }

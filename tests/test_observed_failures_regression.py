@@ -61,6 +61,12 @@ def _load_cases() -> List[Dict[str, Any]]:
     return json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))["cases"]
 
 
+def _load_mined_cases() -> List[Dict[str, Any]]:
+    return json.loads(FIXTURE_PATH.read_text(encoding="utf-8")).get(
+        "cluster_mined_cases", []
+    )
+
+
 # --- Currently-failing cases (xfail markers) -------------------------------
 #
 # Update these sets as fixes land. Each removed entry is a measurable win.
@@ -131,6 +137,47 @@ def test_song_resolution(case, engine, library):
     assert match is not None, f"{text!r} (query={query!r}) produced no match; expected {expected_song}"
     assert match[0] == expected_song, (
         f"{text!r} (query={query!r}) → {match[0]} ({match[1]:.1f}%), expected {expected_song}"
+    )
+
+
+# --- Cluster-mined cases (auto-extracted, retry-cluster ground truth) ----
+#
+# These are inferred labels: when the kid retried 'Alexa' within 60s and the
+# cluster's final attempt eventually played a song with ≥70% confidence, the
+# *prior* failed attempts are labeled with that song. Inference is not
+# certain — kids can switch intent or give up — so failures here are tracked
+# but not blocking. As the algo improves, expected wins move from
+# `_MINED_KNOWN_FAIL` into the passing set.
+
+_MINED_KNOWN_FAIL: set[int] = {
+    # 31, 33, 36, 37: F3 BATIDÃO with too-weak phonetic stems for the
+    # current LCS-boost rule (3 chars or fewer of "BATI") or surrounded
+    # by high-overlap French filler that wins on text+phonetic combined.
+    31, 33, 36, 37,
+    # 34, 35: F2 French song name mangled past phonetic recovery
+    # ("Tu t'es là? Nettent pas d'autres" was supposed to be Les dormantes).
+    34, 35,
+}
+
+
+@pytest.mark.parametrize("case", _load_mined_cases(), ids=_case_id)
+def test_cluster_mined_song_resolution(case, engine, library):
+    """Cluster-mined ground truth: kid eventually got X, so prior tries were also X."""
+    if case["n"] in _MINED_KNOWN_FAIL:
+        pytest.xfail(
+            f"Cluster-mined case still failing (cat={case['cat']}, "
+            f"source={case.get('source','?')})"
+        )
+    text = case["text"]
+    expected_song = case["song"]
+    intent = engine.classify(text)
+    assert intent is not None, f"{text!r} produced no intent"
+    query = intent.parameters.get("query", "") or text
+    match = library.search_best(query)
+    assert match is not None, f"{text!r} (query={query!r}) produced no match"
+    assert match[0] == expected_song, (
+        f"{text!r} (query={query!r}) → {match[0]} ({match[1]:.1f}%), "
+        f"expected {expected_song}"
     )
 
 
