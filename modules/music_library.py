@@ -15,6 +15,30 @@ logger = setup_logger(__name__)
 MAX_SEARCH_CACHE_SIZE = 100
 
 
+def _phonetic_stem_overlap(a: str, b: str) -> int:
+    """Return the length of the longest contiguous substring shared by a and b.
+
+    Used to detect shared foreign-language stems in phonetic encodings that
+    are otherwise drowned out by surrounding tokens. O(len(a) * len(b)).
+    """
+    if not a or not b:
+        return 0
+    m, n = len(a), len(b)
+    if m * n > 10_000:  # safety: phonetic strings are short, but cap anyway
+        return 0
+    prev = [0] * (n + 1)
+    best = 0
+    for i in range(1, m + 1):
+        curr = [0] * (n + 1)
+        for j in range(1, n + 1):
+            if a[i - 1] == b[j - 1]:
+                curr[j] = prev[j - 1] + 1
+                if curr[j] > best:
+                    best = curr[j]
+        prev = curr
+    return best
+
+
 class MusicLibrary:
     """
     Music catalog and search engine.
@@ -403,6 +427,15 @@ class MusicLibrary:
                     phonetic_str = self._phonetic_encoder.encode_pattern(variant)
                     if phonetic_str:
                         phonetic_score = fuzz.token_set_ratio(query_phonetic_str, phonetic_str)
+                        # Phonetic encodings concatenate without word boundaries,
+                        # so a foreign-language stem ("BATIDA" inside NO BATIDÃO)
+                        # is invisible to token_set_ratio when it's surrounded by
+                        # French filler ("MESBATIDES"). Add a small LCS-stem bonus
+                        # so a meaningful shared substring (>= 5 chars) boosts the
+                        # score without dominating it.
+                        stem_len = _phonetic_stem_overlap(query_phonetic_str, phonetic_str)
+                        if stem_len >= 4:
+                            phonetic_score = min(100, phonetic_score + (stem_len - 3) * 12)
                     combined_score = (text_score * text_weight) + (phonetic_score * self.phonetic_weight)
                     file_best = max(file_best, combined_score)
                     if self.debug:

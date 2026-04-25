@@ -226,3 +226,41 @@ class TestFrenchSTTErrorCases:
         assert len(encoded1) > 0
         assert len(encoded2) > 0
         assert len(encoded3) > 0
+
+
+class TestFrenchHomophoneFolding:
+    """The verb 'mets' (play) is a homophone of 'mais', 'mai', 'met', "m'est",
+    and Whisper picks any of them depending on acoustics. These should all
+    encode to the same phonetic code so the play_music intent matches.
+    """
+
+    @pytest.mark.skipif(not is_available(), reason="Phonetic library not available")
+    def test_mets_homophones_collapse(self):
+        encoder = PhoneticEncoder()
+        canonical = encoder.encode_query("mets")
+        for alias in ["mais", "met", "mai", "m'est"]:
+            assert encoder.encode_query(alias) == canonical, (
+                f"{alias!r} should encode like 'mets' (got {encoder.encode_query(alias)!r}, "
+                f"want {canonical!r})"
+            )
+
+    @pytest.mark.skipif(not is_available(), reason="Phonetic library not available")
+    def test_mets_homophones_in_phrase(self):
+        encoder = PhoneticEncoder()
+        canonical = encoder.encode_query("mets les dormantes")
+        for variant in [
+            "mais les dormantes",
+            "met les dormantes",
+            "mai les dormantes",
+        ]:
+            assert encoder.encode_query(variant) == canonical, (
+                f"{variant!r} should fold to same encoding as 'mets les dormantes'"
+            )
+
+    @pytest.mark.skipif(not is_available(), reason="Phonetic library not available")
+    def test_mes_is_not_folded(self):
+        """'mes' (my/plural-possessive) is distinct: 'mes parents' must NOT
+        become 'mets parents' or every "mes X" utterance triggers play_music.
+        """
+        encoder = PhoneticEncoder()
+        assert encoder.encode_query("mes") != encoder.encode_query("mets")

@@ -9,6 +9,17 @@ import re
 import unicodedata
 from typing import Dict, Optional
 
+# French homophones of imperative 'mets' (play). Whisper renders /mɛ/ as any
+# of these depending on acoustics, breaking the play_music intent match.
+# Deliberately excludes 'mes' (my/plural-possessive) — folding it would turn
+# every "mes X" utterance into a play command.
+_FRENCH_HOMOPHONE_FOLD: Dict[str, str] = {
+    "mais": "mets",
+    "met": "mets",
+    "mai": "mets",
+    "mest": "mets",  # "m'est" → "mest" after non-alphanumeric stripping
+}
+
 # Try to import phonetic algorithms
 try:
     from abydos.phonetic import FONEM
@@ -130,10 +141,17 @@ class PhoneticEncoder:
         normalized = unicodedata.normalize('NFKD', text.lower())
         normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
 
-        # Remove non-alphanumeric
-        normalized = re.sub(r'[^a-z0-9]+', '', normalized).strip()
+        # Drop apostrophes so French contractions like "m'est" stay as one
+        # token ("mest") and can be folded to their imperative homophone.
+        normalized = normalized.replace("'", "").replace("’", "")
 
-        return normalized
+        # Split on non-alphanumeric so we can apply per-word transforms
+        # (FONEM works on a single concatenated string, but homophone folding
+        # must be word-aware).
+        words = [w for w in re.split(r'[^a-z0-9]+', normalized) if w]
+        words = [_FRENCH_HOMOPHONE_FOLD.get(w, w) for w in words]
+
+        return ''.join(words)
 
     def _is_allowed(self, normalized_text: str) -> bool:
         """Check if text is suitable for phonetic encoding"""

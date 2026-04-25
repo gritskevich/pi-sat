@@ -1,0 +1,313 @@
+{
+  "description": "Real STT outputs captured from kid-driven live use on 2026-04-25. Each case carries the heard text plus the human-decoded ground-truth intent and (when known) the song the kid wanted. Cases with song=null are intent-only (truncated speech or unknowable target). Used as a regression dataset; pass count should monotonically increase as we ship fixes.",
+  "captured_at": "2026-04-25",
+  "catalog": [
+    "A Journey to Hogwarts.mp3",
+    "Adentro.mp3",
+    "Alone in Kyoto.mp3",
+    "An Old Tale.mp3",
+    "Another Day.mp3",
+    "Astronomia.mp3",
+    "Balkan Express.mp3",
+    "Believer.mp3",
+    "Blue (Da Ba Dee) - Gabry Ponte Ice Pop Radio.mp3",
+    "But I Do.mp3",
+    "Canon in D Major, P.37.mp3",
+    "Chacun sa route.mp3",
+    "Coming Out of the Dark.mp3",
+    "Crazy.mp3",
+    "Dad.mp3",
+    "Deep Blue Dream.mp3",
+    "Derrière le brouillard.mp3",
+    "Dis-moi que tu m'aimes.mp3",
+    "Dumbledore's Farewell (From the Film Score to \"Harry Potter and the Half-Blood Prince\").mp3",
+    "Electronic Performers - Live at KCRW, 2001.mp3",
+    "Electronic Performers.mp3",
+    "Entre le pouce et l'index.mp3",
+    "Fade To Grey - Visage.mp3",
+    "Freed From Desire.mp3",
+    "Ghostwriter.mp3",
+    "Gimme! Gimme! Gimme! (A Man After Midnight).mp3",
+    "Gods of Metal.mp3",
+    "Grace Kelly.mp3",
+    "Harry Potter and the Deathly Hallows, Pt. 2 - Piano Version.mp3",
+    "Heal the World.mp3",
+    "How Does It Make You Feel?.mp3",
+    "J'aime la galette - La Superstar Des Comptines Rondes Et Berceuses.mp3",
+    "Jour 1.mp3",
+    "L'hymne de la vie.mp3",
+    "La grenade.mp3",
+    "La pénombre des Pays-Bas.mp3",
+    "La vanité.mp3",
+    "Le jour se lève.mp3",
+    "Le lion est mort ce soir.mp3",
+    "Le monde s'est dédoublé.mp3",
+    "Le val d'amour.mp3",
+    "Les Démons De Minuit.mp3",
+    "Les dormantes.mp3",
+    "Lettre à M.mp3",
+    "Libertad.mp3",
+    "Lilac.mp3",
+    "Look.mp3",
+    "Ma love supreme.mp3",
+    "Ma sœur.mp3",
+    "Mais je t'aime.mp3",
+    "Malfoy's Mission.mp3",
+    "Mama Africa (feat. Angélique Kidjo et Youssou Ndour).mp3",
+    "Mama.mp3",
+    "Mélodie hongroise.mp3",
+    "México.mp3",
+    "NO BATIDÃO - ZXKAI.mp3",
+    "New Star in the Sky - Vegyn Version.mp3",
+    "Nuit de folie.mp3",
+    "On écrit sur les murs.mp3",
+    "On était beau.mp3",
+    "Origine.mp3",
+    "Papaya - Vaya Papayas.mp3",
+    "Paris - Sped Up Version.mp3",
+    "Pas contente - Vaudou Game.mp3",
+    "Pas contente.mp3",
+    "Passing By.mp3",
+    "Pirouette, cacahuète - La Reine des chansons pour enfants et bébés.mp3",
+    "Quand on arrive en ville - Remasterisé en 2009.mp3",
+    "Queen of Kings.mp3",
+    "Radio Number 1.mp3",
+    "Rim Tim Tagi Dim.mp3",
+    "Rose rouge.mp3",
+    "Royally Rule This World.mp3",
+    "SUPA GOOD!!! (from Dog Man).mp3",
+    "Sevdalıyım - Kız Ben Senin Canına.mp3",
+    "Severus and Lily.mp3",
+    "Sexy Cool.mp3",
+    "Si demain.mp3",
+    "Si t'étais là.mp3",
+    "Slughorn's Confession.mp3",
+    "Snape to Malfoy Manor.mp3",
+    "Sonata No. 14 in C-Sharp Minor, Op. 27 No. 2 \"Moonlight\": 2. Allegretto.mp3",
+    "Sonata No. 14 in C-Sharp Minor, Op. 27 No. 2 \"Moonlight\": 3. Presto agitato.mp3",
+    "Surfing on a Rocket.mp3",
+    "The Big Blue - Ouverture.mp3",
+    "The Chauffeur - 2009 Remaster - Duran Duran.mp3",
+    "The Code.mp3",
+    "Thomas & Thomas.mp3",
+    "Tristesse.mp3",
+    "Voilà.mp3",
+    "When Ginny Kissed Harry (From the Film Score to \"Harry Potter and the Half-Blood Prince\").mp3",
+    "Who's Got The Bacon?.mp3",
+    "maman.mp3",
+    "Études: No. 6.mp3",
+    "Чип и Дейл.mp3"
+  ],
+  "cases": [
+    {
+      "n": 1,
+      "text": "Mais les dormants.",
+      "intent": "play_music",
+      "song": "Les dormantes.mp3",
+      "cat": "F1+F2"
+    },
+    {
+      "n": 2,
+      "text": "mais les deux morts.",
+      "intent": "play_music",
+      "song": "Les dormantes.mp3",
+      "cat": "F1+F2"
+    },
+    {
+      "n": 3,
+      "text": "Mère, Lille, Dernant.",
+      "intent": "play_music",
+      "song": "Les dormantes.mp3",
+      "cat": "F2"
+    },
+    {
+      "n": 4,
+      "text": "Tu peux me dire?",
+      "intent": "play_music",
+      "song": null,
+      "cat": "F5"
+    },
+    {
+      "n": 5,
+      "text": "Je m'y batide.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F1+F3"
+    },
+    {
+      "n": 6,
+      "text": "\"Me\".",
+      "intent": null,
+      "song": null,
+      "cat": "F5"
+    },
+    {
+      "n": 7,
+      "text": "mais, n'oublie pas.",
+      "intent": "play_music",
+      "song": null,
+      "cat": "F1+F5"
+    },
+    {
+      "n": 8,
+      "text": "Tu peux mettre mes bâtides.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3"
+    },
+    {
+      "n": 9,
+      "text": "\"N\" N'est-ce que tu vas?",
+      "intent": null,
+      "song": null,
+      "cat": "F5"
+    },
+    {
+      "n": 10,
+      "text": "Mme Samel.",
+      "intent": "play_music",
+      "song": null,
+      "cat": "F5"
+    },
+    {
+      "n": 11,
+      "text": "M'aissat membre.",
+      "intent": "play_music",
+      "song": null,
+      "cat": "F5"
+    },
+    {
+      "n": 12,
+      "text": "\"Me s'amal\".",
+      "intent": null,
+      "song": null,
+      "cat": "F5"
+    },
+    {
+      "n": 13,
+      "text": "mais les d'achnante.",
+      "intent": "play_music",
+      "song": "Les dormantes.mp3",
+      "cat": "F1+F2"
+    },
+    {
+      "n": 14,
+      "text": "Tu peux mettre chanel?",
+      "intent": "play_music",
+      "song": null,
+      "cat": "F5"
+    },
+    {
+      "n": 15,
+      "text": "Step!.",
+      "intent": "pause",
+      "song": null,
+      "cat": "OK"
+    },
+    {
+      "n": 16,
+      "text": "Tu peux mettre nos bâtiments.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3"
+    },
+    {
+      "n": 17,
+      "text": "Le, le bâtiment.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3+F4"
+    },
+    {
+      "n": 18,
+      "text": "\"Me\" no baté de l'autre.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F1+F3"
+    },
+    {
+      "n": 19,
+      "text": "10 mètres de bâtido.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3"
+    },
+    {
+      "n": 20,
+      "text": "Je peux mettre nos bâtis d'eau.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3"
+    },
+    {
+      "n": 21,
+      "text": "M'en va t-il?",
+      "intent": "play_music",
+      "song": null,
+      "cat": "F5"
+    },
+    {
+      "n": 22,
+      "text": "Je n'ai pas vaté.",
+      "intent": "play_music",
+      "song": "Pas contente.mp3",
+      "cat": "F1+F2"
+    },
+    {
+      "n": 23,
+      "text": "\"Le, le, baté de\".",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3+F4"
+    },
+    {
+      "n": 24,
+      "text": "\"me\" no, d'acquildant.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F1+F3"
+    },
+    {
+      "n": 25,
+      "text": "Tu peux mettre le matis d'eau.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3"
+    },
+    {
+      "n": 26,
+      "text": "Mette.",
+      "intent": "play_music",
+      "song": null,
+      "cat": "F5"
+    },
+    {
+      "n": 27,
+      "text": "Tu peux mettre mon bâtidore.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3"
+    },
+    {
+      "n": 28,
+      "text": "Jupon, non, n'a t-tee, no!.",
+      "intent": "play_music",
+      "song": null,
+      "cat": "F5"
+    },
+    {
+      "n": 29,
+      "text": "Tu peux mettre \"mais\" pas tu d'as-tu dorme?",
+      "intent": "play_music",
+      "song": "Les dormantes.mp3",
+      "cat": "F2"
+    },
+    {
+      "n": 30,
+      "text": "Tu peux mettre \"No\" back to go.",
+      "intent": "play_music",
+      "song": "NO BATIDÃO - ZXKAI.mp3",
+      "cat": "F3"
+    }
+  ]
+}
