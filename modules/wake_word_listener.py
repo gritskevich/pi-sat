@@ -14,6 +14,12 @@ from modules.control_events import ControlEvent, EVENT_WAKE_WORD_DETECTED, EVENT
 WAKE_WORD_FRAME_SIZE = 1280  # 80ms @ 16kHz (openwakeword recommendation)
 WAKE_WORD_VAD_THRESHOLD = 0.6
 
+# Stream recreation is normally triggered by EVENT_RECORDING_FINISHED. The polling
+# fallback below only kicks in if that event is lost. Recordings can take 2–7s, so
+# the threshold must comfortably exceed normal recording duration to avoid racing
+# the event handler and producing "Device unavailable" warnings on a busy mic.
+STREAM_RECREATE_FALLBACK_SECONDS = 10.0
+
 
 def _quiet_import_onnxruntime():
     """Suppress one-time onnxruntime GPU discovery warning on import."""
@@ -227,7 +233,7 @@ class WakeWordListener(BaseModule):
                 if self.stream is None:
                     if self._pending_stream_reopen:
                         elapsed = time.time() - self._pending_stream_reopen_at
-                        if elapsed >= 0.5:
+                        if elapsed >= STREAM_RECREATE_FALLBACK_SECONDS:
                             log_debug(self.logger, "Retrying wake word stream recreation...")
                             if self._recreate_stream():
                                 self._pending_stream_reopen = False
