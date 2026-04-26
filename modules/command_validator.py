@@ -55,14 +55,14 @@ class CommandValidator:
         self.logger.warning(f"Missing response template for '{key}'")
         return ""
 
-    def validate(self, intent: Intent) -> ValidationResult:
+    def validate(self, intent: Intent, exclude=None) -> ValidationResult:
         try:
             intent_type = intent.intent_type
             params = intent.parameters or {}
 
             # Play music validation - most complex
             if intent_type == 'play_music':
-                return self._validate_play_music(params)
+                return self._validate_play_music(params, exclude=exclude)
 
             # Simple controls - always valid
             elif intent_type in ['pause', 'resume', 'continue', 'next', 'previous']:
@@ -110,8 +110,12 @@ class CommandValidator:
                 message=self._get_message('validation_error')
             )
 
-    def _validate_play_music(self, params: Dict[str, Any]) -> ValidationResult:
-        """Validate play music command with catalog check."""
+    def _validate_play_music(self, params: Dict[str, Any], exclude=None) -> ValidationResult:
+        """Validate play music command with catalog check.
+
+        `exclude` is forwarded to MusicLibrary.search_best so songs the kid
+        already DENY'd in this cluster don't keep coming back.
+        """
         query = params.get('query', '').strip()
 
         if not query:
@@ -137,7 +141,11 @@ class CommandValidator:
         # Search for song/artist in catalog
         # Use search_best() to always return something for play_music intent
         # Better to play low-confidence match than nothing
-        result = self.music_library.search_best(query)
+        try:
+            result = self.music_library.search_best(query, exclude=exclude)
+        except TypeError:
+            # Library predates the `exclude` param — fall back gracefully
+            result = self.music_library.search_best(query)
 
         if not result:
             # Should never happen with search_best() unless library is empty
