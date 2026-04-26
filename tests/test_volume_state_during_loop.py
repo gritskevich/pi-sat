@@ -21,12 +21,23 @@ from modules.control_events import (
     EVENT_CONFIRMATION_TIMEOUT,
     EVENT_CONTINUE_REQUESTED,
     EVENT_INTENT_READY,
+    EVENT_MUSIC_SEARCH_REQUESTED,
     EVENT_PAUSE_REQUESTED,
+    EVENT_PLAY_REQUESTED,
     EVENT_RECORDING_FINISHED,
     EVENT_RECORDING_STARTED,
     EVENT_TTS_CONFIRMATION,
     EVENT_WAKE_WORD_DETECTED,
     new_event,
+)
+
+# Any of these events fired during a pending confirmation would mean music
+# is starting/resuming — i.e. the kid hears music when she should hear
+# silence (waiting for her oui/non).
+PLAY_INDUCING_EVENTS = (
+    EVENT_CONTINUE_REQUESTED,
+    EVENT_PLAY_REQUESTED,
+    EVENT_MUSIC_SEARCH_REQUESTED,
 )
 from modules.event_bus import EventBus
 from modules.playback_state_machine import PlaybackStateMachine
@@ -49,7 +60,15 @@ def bus(monkeypatch):
 @pytest.fixture
 def captured(bus):
     events = []
-    for name in (EVENT_PAUSE_REQUESTED, EVENT_CONTINUE_REQUESTED, EVENT_INTENT_READY):
+    # Capture every event that could possibly start/resume playback during
+    # what should be a silent confirmation window.
+    for name in (
+        EVENT_PAUSE_REQUESTED,
+        EVENT_CONTINUE_REQUESTED,
+        EVENT_PLAY_REQUESTED,
+        EVENT_MUSIC_SEARCH_REQUESTED,
+        EVENT_INTENT_READY,
+    ):
         bus.subscribe(name, lambda e, store=events: store.append(e))
     return events
 
@@ -73,6 +92,15 @@ class TestNoResumeDuringConfirmationLoop:
     """While confirmation is pending or DENY-loop is running, don't auto-resume."""
 
     def test_no_continue_while_pending(self, bus, captured):
+        """Music must NOT resume at any point in the confirmation lifecycle.
+
+        Strict version: assert no CONTINUE_REQUESTED ever fires from wake
+        through to short-listen completion. Earlier version cleared the
+        captured list at the wrong point and missed a real bug where
+        EVENT_TTS_CONFIRMATION with awaiting_confirmation=True fell through
+        the state machine's "intent without _pending_intent" branch and
+        spuriously published CONTINUE_REQUESTED.
+        """
         sm = PlaybackStateMachine(event_bus=bus, mpd_controller=StubMpd("play"))
         # Wake → pause
         bus.publish(new_event(EVENT_WAKE_WORD_DETECTED, source="t")); _drain()
@@ -82,18 +110,24 @@ class TestNoResumeDuringConfirmationLoop:
                               {"matched_file": "X.mp3", "query": "x", "confidence": 0.55},
                               source="t")); _drain()
         bus.publish(new_event(EVENT_RECORDING_FINISHED, source="t")); _drain()
+        # The validator/processor publishes TTS_CONFIRMATION with the awaiting
+        # flag — at this point music MUST remain paused. NOTHING that could
+        # cause playback (CONTINUE / PLAY / MUSIC_SEARCH) should fire.
         bus.publish(new_event(EVENT_TTS_CONFIRMATION,
                               {"intent_found": True, "intent_type": "play_music",
                                "awaiting_confirmation": True},
                               source="t")); _drain()
-        captured.clear()
-        # Now the kid's reply is being captured. We DO NOT want CONTINUE_REQUESTED
-        # to fire — music must stay paused while we listen.
-        # Simulate the short_listen recording cycle:
+        play_events = [n for n in _names(captured) if n in {e for e in PLAY_INDUCING_EVENTS}]
+        assert not play_events, (
+            f"Music resumed during confirmation prompt; play-inducing events: {play_events}"
+        )
+        # Short-listen cycle starts (kid's reply is being captured)
         bus.publish(new_event(EVENT_RECORDING_STARTED, source="t")); _drain()
         bus.publish(new_event(EVENT_RECORDING_FINISHED, source="t")); _drain()
-        # No tts_confirmation came yet — pending stays alive
-        assert EVENT_CONTINUE_REQUESTED not in _names(captured)
+        play_events = [n for n in _names(captured) if n in {e for e in PLAY_INDUCING_EVENTS}]
+        assert not play_events, (
+            f"Music resumed after short-listen recording finished; events: {play_events}"
+        )
         assert sm.pending_confirmation is not None
 
     def test_deny_does_not_resume_music(self, bus, captured):

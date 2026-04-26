@@ -252,6 +252,13 @@ class PlaybackStateMachine(BaseModule):
 
     def _on_tts_confirmation(self, event: ControlEvent):
         intent_found = bool(event.payload.get("intent_found", False))
+        # If the validator parked the match in the confirmation lane, there is
+        # nothing to apply yet — the kid still has to answer. Stay silent
+        # (no resume, no play, no search) until AFFIRM/DENY/TIMEOUT arrives.
+        # _on_confirmation_affirmed re-publishes a real TTS_CONFIRMATION
+        # without this flag at that point.
+        if event.payload.get("awaiting_confirmation"):
+            return
         if not intent_found:
             self._pending_intent = None
             self._resume_if_needed("tts_no_intent")
