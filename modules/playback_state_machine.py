@@ -145,7 +145,13 @@ class PlaybackStateMachine(BaseModule):
         if pending is None:
             log_debug(self.logger, "AFFIRM with no pending; ignoring")
             return
-        # Trigger play via the standard pipeline event
+        if not pending.get("matched_file"):
+            log_warning(self.logger, "AFFIRM with no matched_file in pending; ignoring")
+            return
+        # Trigger play via the standard pipeline. INTENT_READY *stores* the
+        # intent on the state machine; the actual EVENT_PLAY_REQUESTED is
+        # published by _on_tts_confirmation when intent_found=True. Without
+        # the second event, _apply_intent never runs and the song never plays.
         self.event_bus.publish(new_event(
             EVENT_INTENT_READY,
             {
@@ -159,6 +165,12 @@ class PlaybackStateMachine(BaseModule):
             },
             source="state_machine",
         ))
+        self.event_bus.publish(new_event(
+            EVENT_TTS_CONFIRMATION,
+            {"intent_found": True, "intent_type": "play_music",
+             "from_confirmation_affirmed": True},
+            source="state_machine",
+        ))
         # Reset confirmation lane for the next cluster
         self.pending_confirmation = None
         self.excluded_files = set()
@@ -166,19 +178,17 @@ class PlaybackStateMachine(BaseModule):
 
     def _on_confirmation_denied(self, event: ControlEvent):
         """Kid said 'non' — exclude the song, increment denies counter, give up after 3."""
+        # A DENY is only meaningful if a candidate is currently pending. The
+        # pending field is cleared as soon as we process a DENY, so any second
+        # DENY arriving while pending is None is stray (duplicate event,
+        # parser bug, late wake-cleared event, etc.) and must be ignored.
+        if self.pending_confirmation is None:
+            log_debug(self.logger, "Stray DENY (no pending); ignoring")
+            return
         payload = event.payload or {}
-        # Resolve the file to exclude: prefer payload, fall back to pending
-        rejected_file = payload.get("matched_file")
-        if not rejected_file and self.pending_confirmation:
-            rejected_file = self.pending_confirmation.get("matched_file")
-
+        rejected_file = payload.get("matched_file") or self.pending_confirmation.get("matched_file")
         if not rejected_file:
             log_debug(self.logger, "DENY with no file context; ignoring")
-            return
-
-        # Stray DENY without any pending or prior request — no-op
-        if self.pending_confirmation is None and not self.excluded_files:
-            log_debug(self.logger, f"Stray DENY for {rejected_file!r}; ignoring")
             return
 
         self.excluded_files.add(rejected_file)

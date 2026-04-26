@@ -676,17 +676,21 @@ class CommandProcessor(BaseModule):
             return
 
         if reply.cls is NEW_COMMAND:
-            # The kid skipped yes/no and said a fresh command. Discard pending,
-            # then run the text through the normal classify+validate path with
-            # the current exclusion set so we don't re-suggest songs already
-            # rejected this cluster.
-            self.event_bus.publish(new_event(
-                EVENT_CONFIRMATION_DENIED,
-                {"matched_file": pending.get("matched_file"),
-                 "query": pending.get("query"),
-                 "reason": "new_command"},
-                source="command_processor",
-            ))
+            # The kid skipped yes/no and said a fresh command — she's restating
+            # her intent, possibly even insisting on the same song the matcher
+            # mismatched. Drop the pending candidate AND the cluster's
+            # exclusion set: NEW_COMMAND is a clean slate, not a deny-chain.
+            #
+            # We do NOT publish EVENT_CONFIRMATION_DENIED here. Doing so would
+            # cause the state machine's deny handler (which sees the now-
+            # cleared pending_confirmation) to either be a stray no-op (after
+            # our manual reset) or — worse, if the order races — re-add the
+            # file we just excluded. State manipulation directly on the state
+            # machine is the simplest correct semantic.
+            if self.state_machine is not None:
+                self.state_machine.pending_confirmation = None
+                self.state_machine.excluded_files = set()
+                self.state_machine.consecutive_denies = 0
             self._process_text(text)
             return
 

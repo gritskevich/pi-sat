@@ -109,14 +109,27 @@ class Orchestrator:
             self.stop()
 
     def _on_confirmation_requested(self, event: ControlEvent | None = None):
-        """Trigger the SHORT_LISTEN cycle once the prompt has been spoken."""
-        # Run on its own thread so the event-bus dispatcher isn't blocked by
-        # mic capture + STT (just like _on_wake_word_detected).
+        """Trigger the SHORT_LISTEN cycle once the prompt has been spoken.
+
+        Acquires the same is_processing lock as the wake-word path so a kid
+        saying 'Alexa' mid-SHORT_LISTEN does not spawn a concurrent
+        process_command — both would compete for the mic and produce garbage.
+        """
+        with self._processing_lock:
+            if self.is_processing:
+                log_warning(self.logger,
+                            "Confirmation reply requested while already processing; ignoring")
+                return
+            self.is_processing = True
+
         def _run_reply():
             try:
                 self.command_processor.process_confirmation_reply()
             except Exception as e:
                 log_error(self.logger, f"Confirmation reply error: {e}")
+            finally:
+                with self._processing_lock:
+                    self.is_processing = False
 
         if event is not None:
             threading.Thread(target=_run_reply, daemon=True).start()
