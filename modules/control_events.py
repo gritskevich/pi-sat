@@ -27,6 +27,11 @@ EVENT_RECORDING_FINISHED = "recording_finished"
 EVENT_WAKE_WORD_DETECTED = "wake_word_detected"
 EVENT_INTENT_READY = "intent_ready"
 EVENT_TTS_CONFIRMATION = "tts_confirmation"
+# A play_music match landed in the NeedsConfirmation tier. The system has
+# spoken a yes/no question (e.g., "Tu veux X ?") and is now expecting either
+# a confirming/denying utterance from the kid OR a fresh wake word.
+# Payload: {"matched_file": "X.mp3", "query": "...", "confidence": 0.55}
+EVENT_CONFIRMATION_REQUESTED = "confirmation_requested"
 
 
 @dataclass(frozen=True)
@@ -93,4 +98,5 @@ ALLOWED_EVENTS: Set[str] = {
     EVENT_WAKE_WORD_DETECTED,
     EVENT_INTENT_READY,
     EVENT_TTS_CONFIRMATION,
+    EVENT_CONFIRMATION_REQUESTED,
 }

@@ -130,6 +130,54 @@ ACTIVE_INTENTS = {
     'volume_down',
 }
 
+# Per-song aliases mined from retry-cluster transcripts in
+# scripts/extract_observed_failures.py + the hot-retry analysis. Each entry's
+# values are merged into the song's variant set when the catalog loads, so the
+# fuzzy + phonetic + LCS-stem stack picks them up automatically. Refresh via
+# the /pisat-improve skill as the kid's pronunciation patterns evolve.
+SONG_ALIASES = {
+    # 4 retry clusters across 4 months — kid says "bâtidão" with French accent
+    'NO BATIDÃO - ZXKAI.mp3': [
+        'no batidao', 'batidao', 'no batido', 'no bati', 'non bati',
+        'bati dão', 'bati dao', 'non batte', 'no bate', 'bati d eau',
+        'bati dor', 'mon batidore', 'nos batiments', 'mes batides',
+        'non bati d eau', 'no back to go',
+    ],
+    # 3 clusters / 16 attempts — keep only phonetic stems of "Jour 1" itself.
+    # Dropped speculative cluster transcripts ("cours", "gua-tini") that may
+    # have targeted different songs in multi-intent clusters.
+    'Jour 1.mp3': [
+        'jour un', 'jour 1',
+    ],
+    # 5 clusters / 14 attempts — confirmed by parent yesterday ("dormants" /
+    # "dormante" / "deux morts" all maps to Les dormantes for this kid).
+    'Les dormantes.mp3': [
+        'les dormants', 'les dormante', 'les deux morts',
+        'mais les dormants', 'tu peux mettre les dormantes',
+    ],
+    # 4 clusters / 12 attempts — keep only stems clearly tied to the title.
+    # "ma vie sur la pelle", "mailleuse au oprime" came from clusters the
+    # kid was switching between Ma love supreme and Le lion — too ambiguous.
+    'Ma love supreme.mp3': [
+        'ma love sup', 'ma love', 'love supreme',
+    ],
+    # 6 clusters / 9 attempts — "Le lion et mort ce soir" common kid phrasing
+    'Le lion est mort ce soir.mp3': [
+        'le lion mort', 'lion mort', 'lion et mort', 'le lion et mort',
+        'le lion et mort ce soir', 'lion ce soir',
+    ],
+    # 2 clusters / 4 attempts — "Pas contente" without "Vaudou Game"
+    'Pas contente - Vaudou Game.mp3': [
+        'pas contente', 'pas contant', 'pas content',
+    ],
+    # NOTE: Lettre à M aliases removed 2026-04-26 — cluster-mining had labeled
+    # batidão-class transcripts ("le baté de", "le matis d'eau") as Lettre à M
+    # because the cluster ended with Lettre à M played wrongly out of frustration.
+    # Real intent was NO BATIDÃO. Cluster-final inference is unreliable when the
+    # cluster ends below ~70% confidence. The /pisat-improve skill must respect
+    # this — ASK before auto-adding aliases for low-conf cluster anchors.
+}
+
 # Volume
 MASTER_VOLUME = _env_int('MASTER_VOLUME', 15)
 VOLUME_STEP = _env_int('VOLUME_STEP', 5)

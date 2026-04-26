@@ -26,6 +26,7 @@ from modules.control_events import (
     EVENT_MUSIC_SEARCH_REQUESTED,
     EVENT_INTENT_DETECTED,
     EVENT_INTENT_READY,
+    EVENT_CONFIRMATION_REQUESTED,
     EVENT_RECORDING_STARTED,
     EVENT_RECORDING_FINISHED,
     EVENT_TTS_CONFIRMATION,
@@ -192,6 +193,37 @@ class CommandProcessor(BaseModule):
             log_info(self.logger, f"✅ Validation: {validation.feedback_message}")
             self.tts.speak(validation.feedback_message)
             if self.event_bus:
+                # Confirmation tier: borderline-confidence play_music. The TTS
+                # message is a yes/no question; the orchestrator must NOT play
+                # the candidate yet. Publish a confirmation request so the
+                # state machine can park in an "awaiting reply" state.
+                if validation.requires_confirmation:
+                    log_info(self.logger, "❓ Awaiting confirmation (low-confidence match)")
+                    params = validation.validated_params or {}
+                    self.event_bus.publish(
+                        new_event(
+                            EVENT_CONFIRMATION_REQUESTED,
+                            {
+                                "matched_file": params.get("matched_file"),
+                                "query": params.get("query"),
+                                "confidence": validation.confidence,
+                            },
+                            source="command_processor",
+                        )
+                    )
+                    self.event_bus.publish(
+                        new_event(
+                            EVENT_TTS_CONFIRMATION,
+                            {
+                                "intent_found": True,
+                                "intent_type": intent.intent_type,
+                                "awaiting_confirmation": True,
+                            },
+                            source="command_processor",
+                        )
+                    )
+                    return True
+
                 payload = {
                     "intent_type": intent.intent_type,
                     "parameters": validation.validated_params or {},

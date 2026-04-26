@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 from modules.interfaces import Intent
 from modules.logging_utils import setup_logger
@@ -13,14 +13,21 @@ class ValidationResult:
     feedback_message: str  # French TTS message to speak
     validated_params: Dict[str, Any]  # Validated/normalized parameters
     confidence: float = 1.0
+    # When True, the message is a yes/no question and the orchestrator must NOT
+    # execute the candidate yet — it should publish a confirmation event and
+    # listen for the kid's response. The candidate file is still in
+    # validated_params so it can be played on "oui".
+    requires_confirmation: bool = False
 
     @staticmethod
-    def valid(message: str, params: Dict[str, Any], confidence: float = 1.0) -> 'ValidationResult':
+    def valid(message: str, params: Dict[str, Any], confidence: float = 1.0,
+              requires_confirmation: bool = False) -> 'ValidationResult':
         return ValidationResult(
             is_valid=True,
             feedback_message=message,
             validated_params=params,
-            confidence=confidence
+            confidence=confidence,
+            requires_confirmation=requires_confirmation,
         )
 
     @staticmethod
@@ -29,7 +36,7 @@ class ValidationResult:
             is_valid=False,
             feedback_message=message,
             validated_params={},
-            confidence=0.0
+            confidence=0.0,
         )
 
 
@@ -145,26 +152,36 @@ class CommandValidator:
         import os
         song_name = os.path.splitext(best_match)[0]
 
-        # Reject very low confidence matches (likely wrong song)
-        if confidence < 0.4:
+        # Domain classification (modules/match_outcome.py is the source of truth
+        # for the boundaries; we duplicate the imports here to keep this module
+        # self-contained for testing).
+        from modules.match_outcome import (
+            classify_match, Confident, Uncertain, NeedsConfirmation, Rejected,
+        )
+        outcome = classify_match(file=best_match, confidence=confidence, query=query)
+
+        if isinstance(outcome, Rejected):
             return ValidationResult.invalid(
                 message=self._get_message('no_music_found', query=query)
             )
 
-        # High confidence (>=80%) - confirm what we found
-        if confidence >= 0.8:
+        params = {'matched_file': best_match, 'query': query}
+        if isinstance(outcome, Confident):
             return ValidationResult.valid(
                 message=self._get_message('playing_song', song=song_name),
-                params={'matched_file': best_match, 'query': query},
-                confidence=confidence
+                params=params, confidence=confidence,
             )
-        # Medium confidence (50-80%) - express uncertainty
-        else:
+        if isinstance(outcome, Uncertain):
             return ValidationResult.valid(
                 message=self._get_message('playing_with_confidence', song=song_name),
-                params={'matched_file': best_match, 'query': query},
-                confidence=confidence
+                params=params, confidence=confidence,
             )
+        # NeedsConfirmation: ask the kid before playing.
+        return ValidationResult.valid(
+            message=self._get_message('confirming_song', song=song_name),
+            params=params, confidence=confidence,
+            requires_confirmation=True,
+        )
 
     def _validate_simple_control(self, intent_type: str) -> ValidationResult:
         """Validate simple playback controls."""

@@ -91,12 +91,11 @@ class TestCommandValidatorFrench:
         assert result.confidence >= 0.8
 
     def test_play_music_valid_low_confidence(self, validator_fr, monkeypatch):
-        """Test play music with low confidence match."""
-        # Mock library methods
+        """Uncertain tier (0.65 ≤ conf < 0.80): play but hedge in TTS."""
         def mock_is_empty():
             return False
         def mock_search_best(query):
-            return ("test_song.mp3", 0.6)
+            return ("test_song.mp3", 0.7)  # Uncertain tier
 
         monkeypatch.setattr(validator_fr.music_library, 'is_empty', mock_is_empty)
         monkeypatch.setattr(validator_fr.music_library, 'search_best', mock_search_best)
@@ -110,9 +109,8 @@ class TestCommandValidatorFrench:
         )
 
         result = validator_fr.validate(intent)
-
-        # Should validate with uncertainty message
         assert result.is_valid is True
+        assert result.requires_confirmation is False  # plays, but with hedge
         assert result.feedback_message in _response_options('fr', 'playing_with_confidence', song="test_song")
         assert result.confidence < 0.8
 

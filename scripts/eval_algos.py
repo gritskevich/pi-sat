@@ -260,7 +260,7 @@ def build_catalog_library(catalog: list[str], encoder: PhoneticEncoder) -> Music
     metadata = []
     for fn in catalog:
         basename = os.path.splitext(os.path.basename(fn))[0]
-        variants = lib._build_searchable_variants(basename)
+        variants = lib._build_searchable_variants(basename, file_path=fn)
         cat.append(fn)
         metadata.append((fn, variants))
     lib._catalog = cat

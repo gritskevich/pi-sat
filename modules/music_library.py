@@ -153,7 +153,7 @@ class MusicLibrary:
                                 tag_variants = self._collect_tag_variants(title, artist, album_artist)
                         except Exception:
                             tag_variants = []
-                    variants = self._build_searchable_variants(basename, tag_variants)
+                    variants = self._build_searchable_variants(basename, tag_variants, file_path=rel_path)
                     metadata.append((rel_path, variants))
 
         self._catalog = catalog
@@ -200,7 +200,7 @@ class MusicLibrary:
                     artist = item.get('Artist') or item.get('artist')
                     album_artist = item.get('AlbumArtist') or item.get('albumartist')
                     tag_variants = self._collect_tag_variants(title, artist, album_artist)
-                    variants = self._build_searchable_variants(basename, tag_variants)
+                    variants = self._build_searchable_variants(basename, tag_variants, file_path=file_path)
                     metadata.append((file_path, variants))
 
             self._catalog = catalog
@@ -540,10 +540,36 @@ class MusicLibrary:
             # Remove oldest item (first item in OrderedDict)
             self._search_best_cache.popitem(last=False)
 
-    def _build_searchable_variants(self, basename: str, extra_variants: Optional[list[str]] = None) -> list[str]:
+    def _aliases_for(self, file_path: Optional[str]) -> list[str]:
+        """Resolve config.SONG_ALIASES entries for the given file_path.
+
+        Aliases are keyed by basename of the file (e.g., "NO BATIDÃO - ZXKAI.mp3").
+        Missing keys / missing config / non-list values all return [] silently
+        so a stale alias for a removed song doesn't break catalog load.
+        """
+        if not file_path:
+            return []
+        aliases_map = getattr(config, "SONG_ALIASES", None) or {}
+        key = os.path.basename(file_path)
+        raw = aliases_map.get(key) or aliases_map.get(file_path) or []
+        if not isinstance(raw, (list, tuple)):
+            return []
+        return [str(a) for a in raw if a]
+
+    def _build_searchable_variants(
+        self,
+        basename: str,
+        extra_variants: Optional[list[str]] = None,
+        file_path: Optional[str] = None,
+    ) -> list[str]:
         variants = [basename]
         if extra_variants:
             variants.extend([v for v in extra_variants if v])
+        # Pull in any catalog-level aliases for this song. Aliases capture the
+        # kid's actual pronunciations mined from retry clusters and feed the
+        # same fuzzy + phonetic + LCS-stem path as ID3 tags and filename parts.
+        for alias in self._aliases_for(file_path):
+            variants.append(alias)
         expanded = []
         for variant in variants:
             if " - " in variant:

@@ -24,6 +24,7 @@ from modules.control_events import (
     EVENT_VOLUME_DOWN_REQUESTED,
     EVENT_VOLUME_UP_REQUESTED,
     EVENT_WAKE_WORD_DETECTED,
+    EVENT_CONFIRMATION_REQUESTED,
 )
 from modules.logging_utils import log_debug, log_warning
 
@@ -40,6 +41,12 @@ class PlaybackStateMachine(BaseModule):
         self._pending_intent = None
         self._interaction_active = False
         self._should_resume_after_recording = False
+        # Confirmation lane: a borderline-confidence play_music match where the
+        # TTS asked "Tu veux X ?" instead of playing. We park the candidate here
+        # until a follow-up (a yes/no parsed from the kid's next utterance, or
+        # a fresh wake word that supersedes it). dict shape:
+        #   {"matched_file": "X.mp3", "query": "...", "confidence": float}
+        self.pending_confirmation: dict | None = None
         self.event_bus.subscribe(EVENT_WAKE_WORD_DETECTED, self._on_wake_word_detected)
         self.event_bus.subscribe(EVENT_BUTTON_PRESSED, self._on_button_pressed)
         self.event_bus.subscribe(EVENT_BUTTON_DOUBLE_PRESSED, self._on_button_double_pressed)
@@ -47,6 +54,7 @@ class PlaybackStateMachine(BaseModule):
         self.event_bus.subscribe(EVENT_RECORDING_FINISHED, self._on_recording_finished)
         self.event_bus.subscribe(EVENT_INTENT_READY, self._on_intent_ready)
         self.event_bus.subscribe(EVENT_TTS_CONFIRMATION, self._on_tts_confirmation)
+        self.event_bus.subscribe(EVENT_CONFIRMATION_REQUESTED, self._on_confirmation_requested)
 
     def _read_state(self) -> str:
         if not self.mpd_controller:
@@ -87,7 +95,33 @@ class PlaybackStateMachine(BaseModule):
         self._should_resume_after_recording = False
 
     def _on_wake_word_detected(self, event: ControlEvent):
+        # Fresh wake word — any prior pending confirmation is now stale (the
+        # kid is asking again, presumably because the previous question was
+        # for the wrong song).
+        if self.pending_confirmation is not None:
+            log_debug(
+                self.logger,
+                f"Dropping pending confirmation due to new wake word: "
+                f"{self.pending_confirmation.get('matched_file')}",
+            )
+            self.pending_confirmation = None
         self._pause_if_playing("wake_word_detected")
+
+    def _on_confirmation_requested(self, event: ControlEvent):
+        payload = event.payload or {}
+        if not payload.get("matched_file"):
+            log_warning(self.logger, "Confirmation requested without matched_file; ignoring")
+            return
+        self.pending_confirmation = {
+            "matched_file": payload.get("matched_file"),
+            "query": payload.get("query"),
+            "confidence": payload.get("confidence", 0.0),
+        }
+        log_debug(
+            self.logger,
+            f"Awaiting confirmation for {self.pending_confirmation['matched_file']} "
+            f"(conf={self.pending_confirmation['confidence']:.2f})",
+        )
 
     def _on_button_pressed(self, event: ControlEvent):
         if self._recording_active or self._interaction_active:
