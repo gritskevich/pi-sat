@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Dict, Any
 from modules.interfaces import Intent
 from modules.logging_utils import setup_logger
@@ -13,21 +13,14 @@ class ValidationResult:
     feedback_message: str  # French TTS message to speak
     validated_params: Dict[str, Any]  # Validated/normalized parameters
     confidence: float = 1.0
-    # When True, the message is a yes/no question and the orchestrator must NOT
-    # execute the candidate yet — it should publish a confirmation event and
-    # listen for the kid's response. The candidate file is still in
-    # validated_params so it can be played on "oui".
-    requires_confirmation: bool = False
 
     @staticmethod
-    def valid(message: str, params: Dict[str, Any], confidence: float = 1.0,
-              requires_confirmation: bool = False) -> 'ValidationResult':
+    def valid(message: str, params: Dict[str, Any], confidence: float = 1.0) -> 'ValidationResult':
         return ValidationResult(
             is_valid=True,
             feedback_message=message,
             validated_params=params,
             confidence=confidence,
-            requires_confirmation=requires_confirmation,
         )
 
     @staticmethod
@@ -55,14 +48,14 @@ class CommandValidator:
         self.logger.warning(f"Missing response template for '{key}'")
         return ""
 
-    def validate(self, intent: Intent, exclude=None) -> ValidationResult:
+    def validate(self, intent: Intent) -> ValidationResult:
         try:
             intent_type = intent.intent_type
             params = intent.parameters or {}
 
             # Play music validation - most complex
             if intent_type == 'play_music':
-                return self._validate_play_music(params, exclude=exclude)
+                return self._validate_play_music(params)
 
             # Simple controls - always valid
             elif intent_type in ['pause', 'resume', 'continue', 'next', 'previous']:
@@ -110,12 +103,8 @@ class CommandValidator:
                 message=self._get_message('validation_error')
             )
 
-    def _validate_play_music(self, params: Dict[str, Any], exclude=None) -> ValidationResult:
-        """Validate play music command with catalog check.
-
-        `exclude` is forwarded to MusicLibrary.search_best so songs the kid
-        already DENY'd in this cluster don't keep coming back.
-        """
+    def _validate_play_music(self, params: Dict[str, Any]) -> ValidationResult:
+        """Validate play music command with catalog check."""
         query = params.get('query', '').strip()
 
         if not query:
@@ -141,11 +130,7 @@ class CommandValidator:
         # Search for song/artist in catalog
         # Use search_best() to always return something for play_music intent
         # Better to play low-confidence match than nothing
-        try:
-            result = self.music_library.search_best(query, exclude=exclude)
-        except TypeError:
-            # Library predates the `exclude` param — fall back gracefully
-            result = self.music_library.search_best(query)
+        result = self.music_library.search_best(query)
 
         if not result:
             # Should never happen with search_best() unless library is empty
@@ -160,35 +145,22 @@ class CommandValidator:
         import os
         song_name = os.path.splitext(best_match)[0]
 
-        # Domain classification (modules/match_outcome.py is the source of truth
-        # for the boundaries; we duplicate the imports here to keep this module
-        # self-contained for testing).
-        from modules.match_outcome import (
-            classify_match, Confident, Uncertain, NeedsConfirmation, Rejected,
-        )
-        outcome = classify_match(file=best_match, confidence=confidence, query=query)
-
-        if isinstance(outcome, Rejected):
+        # Reject very low confidence matches (likely wrong song)
+        if confidence < 0.4:
             return ValidationResult.invalid(
                 message=self._get_message('no_music_found', query=query)
             )
 
         params = {'matched_file': best_match, 'query': query}
-        if isinstance(outcome, Confident):
+        if confidence >= 0.8:
             return ValidationResult.valid(
                 message=self._get_message('playing_song', song=song_name),
                 params=params, confidence=confidence,
             )
-        if isinstance(outcome, Uncertain):
-            return ValidationResult.valid(
-                message=self._get_message('playing_with_confidence', song=song_name),
-                params=params, confidence=confidence,
-            )
-        # NeedsConfirmation: ask the kid before playing.
+        # 0.40 ≤ conf < 0.80: play with the hedged TTS so the kid hears uncertainty.
         return ValidationResult.valid(
-            message=self._get_message('confirming_song', song=song_name),
+            message=self._get_message('playing_with_confidence', song=song_name),
             params=params, confidence=confidence,
-            requires_confirmation=True,
         )
 
     def _validate_simple_control(self, intent_type: str) -> ValidationResult:

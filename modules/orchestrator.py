@@ -6,11 +6,7 @@ from modules.wake_word_listener import WakeWordListener
 from modules.command_processor import CommandProcessor
 import config
 from modules.logging_utils import setup_logger, log_info, log_success, log_warning, log_error, log_debug
-from modules.control_events import (
-    ControlEvent,
-    EVENT_WAKE_WORD_DETECTED,
-    EVENT_CONFIRMATION_REQUESTED,
-)
+from modules.control_events import ControlEvent, EVENT_WAKE_WORD_DETECTED
 
 
 class Orchestrator:
@@ -87,13 +83,6 @@ class Orchestrator:
 
         if self.event_bus:
             self.event_bus.subscribe(EVENT_WAKE_WORD_DETECTED, self._on_wake_word_detected)
-            # Phase 3: capture the kid's reply during a confirmation prompt.
-            # The validator publishes EVENT_CONFIRMATION_REQUESTED *after* the
-            # TTS prompt finishes (TTS.speak is synchronous in this codebase),
-            # so it's safe to start the short-listen as soon as we see it.
-            self.event_bus.subscribe(
-                EVENT_CONFIRMATION_REQUESTED, self._on_confirmation_requested,
-            )
         else:
             # Fallback for direct wake word callback without event bus
             self.wake_word_listener._notify_orchestrator = self._on_wake_word_detected
@@ -107,34 +96,6 @@ class Orchestrator:
         except Exception as e:
             log_error(self.logger, f"Orchestrator error: {e}")
             self.stop()
-
-    def _on_confirmation_requested(self, event: ControlEvent | None = None):
-        """Trigger the SHORT_LISTEN cycle once the prompt has been spoken.
-
-        Acquires the same is_processing lock as the wake-word path so a kid
-        saying 'Alexa' mid-SHORT_LISTEN does not spawn a concurrent
-        process_command — both would compete for the mic and produce garbage.
-        """
-        with self._processing_lock:
-            if self.is_processing:
-                log_warning(self.logger,
-                            "Confirmation reply requested while already processing; ignoring")
-                return
-            self.is_processing = True
-
-        def _run_reply():
-            try:
-                self.command_processor.process_confirmation_reply()
-            except Exception as e:
-                log_error(self.logger, f"Confirmation reply error: {e}")
-            finally:
-                with self._processing_lock:
-                    self.is_processing = False
-
-        if event is not None:
-            threading.Thread(target=_run_reply, daemon=True).start()
-        else:
-            _run_reply()
 
     def _on_wake_word_detected(self, event: ControlEvent | None = None):
         with self._processing_lock:

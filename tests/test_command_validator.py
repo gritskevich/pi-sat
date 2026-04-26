@@ -110,7 +110,6 @@ class TestCommandValidatorFrench:
 
         result = validator_fr.validate(intent)
         assert result.is_valid is True
-        assert result.requires_confirmation is False  # plays, but with hedge
         assert result.feedback_message in _response_options('fr', 'playing_with_confidence', song="test_song")
         assert result.confidence < 0.8
 

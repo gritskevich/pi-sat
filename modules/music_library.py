@@ -272,7 +272,7 @@ class MusicLibrary:
         logger.info(f"Search: '{query}' → '{matched_name}' ({confidence:.2%})")
         return result
 
-    def search_best(self, query: str, exclude=None) -> Optional[Tuple[str, float]]:
+    def search_best(self, query: str) -> Optional[Tuple[str, float]]:
         """
         Fuzzy search catalog - ALWAYS returns best match (ignores threshold).
 
@@ -281,13 +281,9 @@ class MusicLibrary:
 
         Args:
             query: Search query (song name, artist, etc.)
-            exclude: Iterable of file paths to skip (the kid said "non" to these
-                in this cluster). When non-empty, the cache is bypassed and the
-                next-best non-excluded candidate is returned. Returns None when
-                every candidate is excluded.
 
         Returns:
-            Tuple of (file_path, confidence) or None
+            Tuple of (file_path, confidence) or None only if catalog is empty
         """
         if not query or not query.strip():
             logger.warning("Empty search query")
@@ -298,14 +294,11 @@ class MusicLibrary:
             return None
 
         query = query.strip()
-        excluded_set = set(exclude) if exclude else set()
 
-        # Fast path: exact match (skip if excluded)
+        # Fast path: exact match
         norm_query = self._normalize_variant(query)
         query_lower = query.lower()
         for file_path, variants in self._catalog_metadata:
-            if file_path in excluded_set:
-                continue
             basename = os.path.splitext(os.path.basename(file_path))[0]
             if basename.lower() == query_lower or self._normalize_variant(basename) == norm_query:
                 return (file_path, 1.0)
@@ -313,27 +306,16 @@ class MusicLibrary:
                 if variant.lower() == query_lower or self._normalize_variant(variant) == norm_query:
                     return (file_path, 1.0)
 
-        # Cache only meaningful for the no-exclusion case (otherwise the cache
-        # would conflate different exclusion sets).
         cache_key = query.lower()
-        if not excluded_set:
-            cached = self._search_best_cache.get(cache_key)
-            if cached:
-                return cached
+        cached = self._search_best_cache.get(cache_key)
+        if cached:
+            return cached
 
         # Temporarily disable threshold by setting to 0
         original_threshold = self.fuzzy_threshold
         self.fuzzy_threshold = 0
 
         try:
-            # Use rank to get all candidates so we can skip excluded ones
-            if excluded_set:
-                ranked = self.rank_matches(query, limit=len(self._catalog_metadata))
-                for file_path, conf in ranked:
-                    if file_path not in excluded_set:
-                        return (file_path, conf)
-                return None
-
             # Choose search method (same as search())
             if self.phonetic_enabled:
                 result = self._search_hybrid(query)

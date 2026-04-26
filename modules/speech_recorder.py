@@ -264,17 +264,6 @@ class SpeechRecorder(BaseModule):
             self.recording_buffer.append(frame)
     
 
-    def record_short_reply(self, max_duration_s: float = 4.0):
-        """Record a short yes/no reply during a confirmation prompt.
-
-        Currently delegates to record_command (which is VAD-bounded so it
-        returns as soon as the kid stops talking). Kept as a separate method
-        so future tuning (shorter pre-roll, tighter VAD, hard cap on duration)
-        doesn't disturb the main wake-word command path. Tests mock this
-        directly, so no microphone is required for unit tests.
-        """
-        return self.record_command()
-
     def record_command(self):
         if self.debug and config.DEBUG_DUMMY_AUDIO:
             import math

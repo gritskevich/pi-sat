@@ -27,22 +27,6 @@ EVENT_RECORDING_FINISHED = "recording_finished"
 EVENT_WAKE_WORD_DETECTED = "wake_word_detected"
 EVENT_INTENT_READY = "intent_ready"
 EVENT_TTS_CONFIRMATION = "tts_confirmation"
-# A play_music match landed in the NeedsConfirmation tier. The system has
-# spoken a yes/no question (e.g., "Tu veux X ?") and is now expecting either
-# a confirming/denying utterance from the kid OR a fresh wake word.
-# Payload: {"matched_file": "X.mp3", "query": "...", "confidence": 0.55}
-EVENT_CONFIRMATION_REQUESTED = "confirmation_requested"
-# Kid said "oui" — play the pending candidate.
-# Payload: {"matched_file": "X.mp3", "query": "..."}
-EVENT_CONFIRMATION_AFFIRMED = "confirmation_affirmed"
-# Kid said "non" — exclude the pending file and loop back to RECORDING.
-# Payload: {"matched_file": "X.mp3", "query": "..."} (file = anti-alias telemetry)
-EVENT_CONFIRMATION_DENIED = "confirmation_denied"
-# Short-listen window expired without a recognizable response.
-EVENT_CONFIRMATION_TIMEOUT = "confirmation_timeout"
-# 3rd consecutive DENY in a cluster — give up and resume previous music.
-# Payload: {"reason": "max_denies", "denied_files": [...]} for telemetry.
-EVENT_CONFIRMATION_GIVE_UP = "confirmation_give_up"
 
 
 @dataclass(frozen=True)
@@ -109,9 +93,4 @@ ALLOWED_EVENTS: Set[str] = {
     EVENT_WAKE_WORD_DETECTED,
     EVENT_INTENT_READY,
     EVENT_TTS_CONFIRMATION,
-    EVENT_CONFIRMATION_REQUESTED,
-    EVENT_CONFIRMATION_AFFIRMED,
-    EVENT_CONFIRMATION_DENIED,
-    EVENT_CONFIRMATION_TIMEOUT,
-    EVENT_CONFIRMATION_GIVE_UP,
 }

@@ -26,10 +26,6 @@ from modules.control_events import (
     EVENT_MUSIC_SEARCH_REQUESTED,
     EVENT_INTENT_DETECTED,
     EVENT_INTENT_READY,
-    EVENT_CONFIRMATION_REQUESTED,
-    EVENT_CONFIRMATION_AFFIRMED,
-    EVENT_CONFIRMATION_DENIED,
-    EVENT_CONFIRMATION_TIMEOUT,
     EVENT_RECORDING_STARTED,
     EVENT_RECORDING_FINISHED,
     EVENT_TTS_CONFIRMATION,
@@ -68,11 +64,6 @@ class CommandProcessor(BaseModule):
             )
         else:
             self.validator = command_validator
-
-        # Optional reference to the playback state machine; set by the factory
-        # after both modules exist. Used to read pending_confirmation and the
-        # current excluded_files set during the confirmation reply flow.
-        self.state_machine = None
 
         if debug:
             self.logger.setLevel(logging.DEBUG)
@@ -168,17 +159,7 @@ class CommandProcessor(BaseModule):
                 )
 
             # Step 4: Validate command
-            # Honor the state machine's exclusion set so songs the kid DENY'd
-            # in this cluster don't get re-proposed when she retries.
-            exclude = (
-                set(self.state_machine.excluded_files)
-                if self.state_machine and self.state_machine.excluded_files
-                else None
-            )
-            try:
-                validation = self.validator.validate(intent, exclude=exclude)
-            except TypeError:
-                validation = self.validator.validate(intent)
+            validation = self.validator.validate(intent)
 
             log_payload = {
                 "text": text,
@@ -211,37 +192,6 @@ class CommandProcessor(BaseModule):
             log_info(self.logger, f"✅ Validation: {validation.feedback_message}")
             self.tts.speak(validation.feedback_message)
             if self.event_bus:
-                # Confirmation tier: borderline-confidence play_music. The TTS
-                # message is a yes/no question; the orchestrator must NOT play
-                # the candidate yet. Publish a confirmation request so the
-                # state machine can park in an "awaiting reply" state.
-                if validation.requires_confirmation:
-                    log_info(self.logger, "❓ Awaiting confirmation (low-confidence match)")
-                    params = validation.validated_params or {}
-                    self.event_bus.publish(
-                        new_event(
-                            EVENT_CONFIRMATION_REQUESTED,
-                            {
-                                "matched_file": params.get("matched_file"),
-                                "query": params.get("query"),
-                                "confidence": validation.confidence,
-                            },
-                            source="command_processor",
-                        )
-                    )
-                    self.event_bus.publish(
-                        new_event(
-                            EVENT_TTS_CONFIRMATION,
-                            {
-                                "intent_found": True,
-                                "intent_type": intent.intent_type,
-                                "awaiting_confirmation": True,
-                            },
-                            source="command_processor",
-                        )
-                    )
-                    return True
-
                 payload = {
                     "intent_type": intent.intent_type,
                     "parameters": validation.validated_params or {},
@@ -602,155 +552,3 @@ class CommandProcessor(BaseModule):
         except Exception as e:
             log_error(self.logger, f"Intent execution error: {e}")
             return self.tts.get_response_template('error')
-
-    def process_confirmation_reply(self) -> None:
-        """Capture the kid's reply to a 'Tu veux X ?' prompt and dispatch.
-
-        Triggered by the orchestrator on EVENT_CONFIRMATION_REQUESTED *after*
-        the TTS prompt has finished speaking. The flow is:
-          1. record a short reply (VAD-bounded, ~4s)
-          2. STT
-          3. parse_reply()
-          4. publish AFFIRMED / DENIED / TIMEOUT, or recurse for NEW_COMMAND
-
-        Pending must be set on the state machine — otherwise this is a no-op
-        (covers stray firings).
-        """
-        from modules.reply_parser import (
-            AFFIRM, DENY, NEW_COMMAND, TIMEOUT, UNINTELLIGIBLE, parse_reply,
-        )
-
-        if self.state_machine is None or self.state_machine.pending_confirmation is None:
-            log_debug(self.logger,
-                      "process_confirmation_reply called with no pending; ignoring")
-            return
-        pending = dict(self.state_machine.pending_confirmation)
-
-        # 1. Short listen (mocked in tests; VAD-bounded record on hardware)
-        try:
-            audio = self.speech_recorder.record_short_reply()
-        except Exception as e:
-            log_warning(self.logger, f"record_short_reply failed: {e}")
-            audio = None
-
-        # 2. STT (skip if no audio captured)
-        text = ""
-        if audio:
-            try:
-                text = (self._transcribe_audio(audio) or "").strip()
-            except Exception as e:
-                log_warning(self.logger, f"STT during confirmation failed: {e}")
-                text = ""
-
-        # 3. Parse
-        reply = parse_reply(text)
-        log_info(self.logger,
-                 f"❓ Reply: {reply.cls.name} (text={text!r}, token={reply.matched_token!r})")
-
-        if not self.event_bus:
-            log_warning(self.logger, "No event bus; cannot publish reply outcome")
-            return
-
-        # 4. Dispatch
-        if reply.cls is AFFIRM:
-            self.event_bus.publish(new_event(
-                EVENT_CONFIRMATION_AFFIRMED,
-                {"matched_file": pending.get("matched_file"),
-                 "query": pending.get("query")},
-                source="command_processor",
-            ))
-            return
-
-        if reply.cls is DENY:
-            # Speak a short "say it again" prompt and publish DENY. The state
-            # machine takes care of exclusion bookkeeping; the orchestrator
-            # loops back into a fresh process_command() with the new exclusion
-            # already on the state machine.
-            self.tts.speak("OK, dis-moi encore.")
-            self.event_bus.publish(new_event(
-                EVENT_CONFIRMATION_DENIED,
-                {"matched_file": pending.get("matched_file"),
-                 "query": pending.get("query")},
-                source="command_processor",
-            ))
-            return
-
-        if reply.cls is NEW_COMMAND:
-            # The kid skipped yes/no and said a fresh command — she's restating
-            # her intent, possibly even insisting on the same song the matcher
-            # mismatched. Drop the pending candidate AND the cluster's
-            # exclusion set: NEW_COMMAND is a clean slate, not a deny-chain.
-            #
-            # We do NOT publish EVENT_CONFIRMATION_DENIED here. Doing so would
-            # cause the state machine's deny handler (which sees the now-
-            # cleared pending_confirmation) to either be a stray no-op (after
-            # our manual reset) or — worse, if the order races — re-add the
-            # file we just excluded. State manipulation directly on the state
-            # machine is the simplest correct semantic.
-            if self.state_machine is not None:
-                self.state_machine.pending_confirmation = None
-                self.state_machine.excluded_files = set()
-                self.state_machine.consecutive_denies = 0
-            self._process_text(text)
-            return
-
-        # TIMEOUT or UNINTELLIGIBLE — bail out, music resumes
-        self.event_bus.publish(new_event(
-            EVENT_CONFIRMATION_TIMEOUT,
-            {"matched_file": pending.get("matched_file"),
-             "reason": reply.cls.value},
-            source="command_processor",
-        ))
-
-    def _process_text(self, text: str) -> bool:
-        """Re-run the intent+validate pipeline on a transcribed text.
-
-        Used by process_confirmation_reply when the kid issued a NEW_COMMAND
-        instead of yes/no. Honors the state machine's exclusion set so songs
-        already DENY'd this cluster don't come back.
-        """
-        try:
-            intent = self.intent_engine.classify(text)
-        except Exception as e:
-            log_error(self.logger, f"Intent classify error during reply: {e}")
-            return False
-
-        if intent is None:
-            log_info(self.logger, f"⚠️  Reply did not classify as an intent: {text!r}")
-            return False
-
-        exclude = (
-            set(self.state_machine.excluded_files)
-            if self.state_machine and self.state_machine.excluded_files
-            else None
-        )
-        try:
-            validation = self.validator.validate(intent, exclude=exclude)
-        except TypeError:
-            validation = self.validator.validate(intent)
-        if not validation.is_valid:
-            self.tts.speak(validation.feedback_message)
-            return False
-        self.tts.speak(validation.feedback_message)
-
-        if validation.requires_confirmation and self.event_bus:
-            params = validation.validated_params or {}
-            self.event_bus.publish(new_event(
-                EVENT_CONFIRMATION_REQUESTED,
-                {"matched_file": params.get("matched_file"),
-                 "query": params.get("query"),
-                 "confidence": validation.confidence},
-                source="command_processor",
-            ))
-            return True
-
-        if self.event_bus:
-            self.event_bus.publish(new_event(
-                EVENT_INTENT_READY,
-                {"intent_type": intent.intent_type,
-                 "parameters": validation.validated_params or {},
-                 "raw_text": intent.raw_text,
-                 "language": intent.language},
-                source="command_processor",
-            ))
-        return True

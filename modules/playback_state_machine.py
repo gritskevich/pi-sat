@@ -24,11 +24,6 @@ from modules.control_events import (
     EVENT_VOLUME_DOWN_REQUESTED,
     EVENT_VOLUME_UP_REQUESTED,
     EVENT_WAKE_WORD_DETECTED,
-    EVENT_CONFIRMATION_REQUESTED,
-    EVENT_CONFIRMATION_AFFIRMED,
-    EVENT_CONFIRMATION_DENIED,
-    EVENT_CONFIRMATION_TIMEOUT,
-    EVENT_CONFIRMATION_GIVE_UP,
 )
 from modules.logging_utils import log_debug, log_warning
 
@@ -45,18 +40,6 @@ class PlaybackStateMachine(BaseModule):
         self._pending_intent = None
         self._interaction_active = False
         self._should_resume_after_recording = False
-        # Confirmation lane: a borderline-confidence play_music match where the
-        # TTS asked "Tu veux X ?" instead of playing. We park the candidate here
-        # until a follow-up (a yes/no parsed from the kid's next utterance, or
-        # a fresh wake word that supersedes it). dict shape:
-        #   {"matched_file": "X.mp3", "query": "...", "confidence": float}
-        self.pending_confirmation: dict | None = None
-        # Songs the kid has DENY'd in this cluster — passed to MusicLibrary.search_best
-        # so the same wrong match does not get re-proposed in the loop.
-        self.excluded_files: set[str] = set()
-        # 3rd consecutive DENY → give-up (avoids infinite "désolée" loops).
-        self.consecutive_denies: int = 0
-        self.MAX_CONSECUTIVE_DENIES: int = 3
         self.event_bus.subscribe(EVENT_WAKE_WORD_DETECTED, self._on_wake_word_detected)
         self.event_bus.subscribe(EVENT_BUTTON_PRESSED, self._on_button_pressed)
         self.event_bus.subscribe(EVENT_BUTTON_DOUBLE_PRESSED, self._on_button_double_pressed)
@@ -64,10 +47,6 @@ class PlaybackStateMachine(BaseModule):
         self.event_bus.subscribe(EVENT_RECORDING_FINISHED, self._on_recording_finished)
         self.event_bus.subscribe(EVENT_INTENT_READY, self._on_intent_ready)
         self.event_bus.subscribe(EVENT_TTS_CONFIRMATION, self._on_tts_confirmation)
-        self.event_bus.subscribe(EVENT_CONFIRMATION_REQUESTED, self._on_confirmation_requested)
-        self.event_bus.subscribe(EVENT_CONFIRMATION_AFFIRMED, self._on_confirmation_affirmed)
-        self.event_bus.subscribe(EVENT_CONFIRMATION_DENIED, self._on_confirmation_denied)
-        self.event_bus.subscribe(EVENT_CONFIRMATION_TIMEOUT, self._on_confirmation_timeout)
 
     def _read_state(self) -> str:
         if not self.mpd_controller:
@@ -108,117 +87,7 @@ class PlaybackStateMachine(BaseModule):
         self._should_resume_after_recording = False
 
     def _on_wake_word_detected(self, event: ControlEvent):
-        # Fresh wake word — any prior pending confirmation is now stale (the
-        # kid is asking again, presumably because the previous question was
-        # for the wrong song). Reset the whole cluster's exclusion + counter:
-        # this is a fresh session.
-        if self.pending_confirmation is not None:
-            log_debug(
-                self.logger,
-                f"Dropping pending confirmation due to new wake word: "
-                f"{self.pending_confirmation.get('matched_file')}",
-            )
-            self.pending_confirmation = None
-        self.excluded_files = set()
-        self.consecutive_denies = 0
         self._pause_if_playing("wake_word_detected")
-
-    def _on_confirmation_requested(self, event: ControlEvent):
-        payload = event.payload or {}
-        if not payload.get("matched_file"):
-            log_warning(self.logger, "Confirmation requested without matched_file; ignoring")
-            return
-        self.pending_confirmation = {
-            "matched_file": payload.get("matched_file"),
-            "query": payload.get("query"),
-            "confidence": payload.get("confidence", 0.0),
-        }
-        log_debug(
-            self.logger,
-            f"Awaiting confirmation for {self.pending_confirmation['matched_file']} "
-            f"(conf={self.pending_confirmation['confidence']:.2f})",
-        )
-
-    def _on_confirmation_affirmed(self, event: ControlEvent):
-        """Kid said 'oui' — play the pending candidate, reset the loop state."""
-        pending = self.pending_confirmation
-        if pending is None:
-            log_debug(self.logger, "AFFIRM with no pending; ignoring")
-            return
-        if not pending.get("matched_file"):
-            log_warning(self.logger, "AFFIRM with no matched_file in pending; ignoring")
-            return
-        # Trigger play via the standard pipeline. INTENT_READY *stores* the
-        # intent on the state machine; the actual EVENT_PLAY_REQUESTED is
-        # published by _on_tts_confirmation when intent_found=True. Without
-        # the second event, _apply_intent never runs and the song never plays.
-        self.event_bus.publish(new_event(
-            EVENT_INTENT_READY,
-            {
-                "intent_type": "play_music",
-                "parameters": {
-                    "matched_file": pending["matched_file"],
-                    "query": pending.get("query"),
-                },
-                "raw_text": pending.get("query"),
-                "language": "fr",
-            },
-            source="state_machine",
-        ))
-        self.event_bus.publish(new_event(
-            EVENT_TTS_CONFIRMATION,
-            {"intent_found": True, "intent_type": "play_music",
-             "from_confirmation_affirmed": True},
-            source="state_machine",
-        ))
-        # Reset confirmation lane for the next cluster
-        self.pending_confirmation = None
-        self.excluded_files = set()
-        self.consecutive_denies = 0
-
-    def _on_confirmation_denied(self, event: ControlEvent):
-        """Kid said 'non' — exclude the song, increment denies counter, give up after 3."""
-        # A DENY is only meaningful if a candidate is currently pending. The
-        # pending field is cleared as soon as we process a DENY, so any second
-        # DENY arriving while pending is None is stray (duplicate event,
-        # parser bug, late wake-cleared event, etc.) and must be ignored.
-        if self.pending_confirmation is None:
-            log_debug(self.logger, "Stray DENY (no pending); ignoring")
-            return
-        payload = event.payload or {}
-        rejected_file = payload.get("matched_file") or self.pending_confirmation.get("matched_file")
-        if not rejected_file:
-            log_debug(self.logger, "DENY with no file context; ignoring")
-            return
-
-        self.excluded_files.add(rejected_file)
-        self.consecutive_denies += 1
-        # Pending is consumed — caller (orchestrator) will start the next listen/match
-        self.pending_confirmation = None
-
-        if self.consecutive_denies >= self.MAX_CONSECUTIVE_DENIES:
-            self._give_up()
-
-    def _give_up(self):
-        """3rd DENY — give up the cluster, resume previous music if any."""
-        denied = sorted(self.excluded_files)
-        self.event_bus.publish(new_event(
-            EVENT_CONFIRMATION_GIVE_UP,
-            {"reason": "max_denies", "denied_files": denied},
-            source="state_machine",
-        ))
-        # Reset for a fresh start
-        self.excluded_files = set()
-        self.consecutive_denies = 0
-        self.pending_confirmation = None
-        # If music was paused for the interaction, bring it back
-        self._resume_if_needed("confirmation_give_up")
-
-    def _on_confirmation_timeout(self, event: ControlEvent):
-        """Kid stayed silent — drop pending, keep exclusion (cluster lives), resume music."""
-        self.pending_confirmation = None
-        # Note: do NOT reset excluded_files — the kid may retry within the cluster
-        self._resume_if_needed("confirmation_timeout")
 
     def _on_button_pressed(self, event: ControlEvent):
         if self._recording_active or self._interaction_active:
@@ -252,13 +121,6 @@ class PlaybackStateMachine(BaseModule):
 
     def _on_tts_confirmation(self, event: ControlEvent):
         intent_found = bool(event.payload.get("intent_found", False))
-        # If the validator parked the match in the confirmation lane, there is
-        # nothing to apply yet — the kid still has to answer. Stay silent
-        # (no resume, no play, no search) until AFFIRM/DENY/TIMEOUT arrives.
-        # _on_confirmation_affirmed re-publishes a real TTS_CONFIRMATION
-        # without this flag at that point.
-        if event.payload.get("awaiting_confirmation"):
-            return
         if not intent_found:
             self._pending_intent = None
             self._resume_if_needed("tts_no_intent")

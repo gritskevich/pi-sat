@@ -131,13 +131,6 @@
       "Je mets {song}, Si ce n'est pas ça, on change !",
       "Je lance {song}, Dis-moi si j'ai bien compris."
     ],
-    "confirming_song": [
-      "Tu veux {song} ?",
-      "C'est bien {song} que tu veux ?",
-      "Tu veux que je mette {song} ?",
-      "{song} ? Dis oui ou non.",
-      "Tu veux {song} ? Si oui, redis Alexa et dis oui."
-    ],
     "stopping": [
       "D'accord, j'arrête.",
       "Ok, j'arrête la musique.",

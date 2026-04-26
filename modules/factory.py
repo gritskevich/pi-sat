@@ -348,7 +348,7 @@ def create_production_orchestrator(debug: bool = False, verbose: bool = True):
         music_library=mpd_controller.get_music_library(),
         debug=debug
     )
-    state_machine = PlaybackStateMachine(
+    PlaybackStateMachine(
         event_bus=event_bus,
         mpd_controller=mpd_controller,
         debug=debug
@@ -367,9 +367,6 @@ def create_production_orchestrator(debug: bool = False, verbose: bool = True):
         debug=debug,
         verbose=verbose
     )
-    # Wire the state machine into the command processor so it can read
-    # pending_confirmation and excluded_files during the reply flow.
-    command_processor.state_machine = state_machine
 
     # Create orchestrator
     orchestrator = Orchestrator(
