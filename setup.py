@@ -26,7 +26,7 @@ setup(
         "librosa>=0.10.0",
         "scipy>=1.10.0",
         "webrtcvad>=2.0.10",
-        # openwakeword installed separately in pi-sat.sh (Python 3.13 needs --no-deps + onnxruntime)
+        # openwakeword installed separately by `just install` (Python 3.13 needs --no-deps + onnxruntime)
         "numpy>=1.26.4",
         "transformers>=4.30.0",
         "torch>=2.0.0",

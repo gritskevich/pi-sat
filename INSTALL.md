@@ -104,7 +104,7 @@ This handles:
 - Hailo STT models download (~600MB)
 
 ```bash
-./pi-sat.sh install
+just install
 ```
 
 **Expected output:**
@@ -123,7 +123,7 @@ This handles:
 ### 3. Download TTS Voice Model
 
 ```bash
-./pi-sat.sh download_voice
+just download-voice
 ```
 
 Downloads French voice model (fr_FR-siwis-medium, ~60MB) to `resources/voices/`.
@@ -179,7 +179,7 @@ direnv allow
 ### Interactive Mode (Foreground)
 
 ```bash
-./pi-sat.sh run
+just run
 ```
 
 You should see:
@@ -191,7 +191,7 @@ Listening for wake word "Alexa"...
 ### Debug Mode (Shows Audio Levels)
 
 ```bash
-./pi-sat.sh run_debug
+just run-debug
 ```
 
 Shows real-time RMS levels and wake word confidence scores.
@@ -269,11 +269,11 @@ export OUTPUT_ALSA_DEVICE='plughw:X,0'  # Replace X with card number
 
 ```bash
 # Run in debug mode to see confidence scores
-./pi-sat.sh run_debug
+just run-debug
 
 # Adjust sensitivity if needed
 export WAKE_WORD_THRESHOLD=0.3  # Lower = more sensitive (default: 0.5)
-./pi-sat.sh run
+just run
 ```
 
 ### MPD Connection Failed
@@ -292,8 +292,8 @@ mpd ~/.mpd/mpd.conf
 Your venv wasn't created with `--system-site-packages`. Recreate it:
 
 ```bash
-rm -rf venv
-./pi-sat.sh install
+just clean
+just install
 ```
 
 ---
@@ -305,7 +305,7 @@ rm -rf venv
 **Recommended (user service, keeps audio working):**
 
 ```bash
-./install-daemon.sh install --user
+just daemon install --user
 systemctl --user status pi-sat
 sudo loginctl enable-linger $USER
 ```
@@ -313,7 +313,7 @@ sudo loginctl enable-linger $USER
 **Optional (system service, no user audio by default):**
 
 ```bash
-sudo ./install-daemon.sh install --system
+sudo just daemon install --system
 sudo systemctl status pi-sat
 ```
 
@@ -342,10 +342,10 @@ sudo reboot
 
 ```bash
 # Remove systemd service (user)
-./install-daemon.sh uninstall --user
+just daemon uninstall --user
 
 # Remove systemd service (system)
-sudo ./install-daemon.sh uninstall --system
+sudo just daemon uninstall --system
 
 # Remove project
 cd ~

@@ -26,7 +26,7 @@ Uses PipeWire's `module-echo-cancel` with WebRTC processing to reduce background
 
 **Enable**:
 ```bash
-scripts/enable_noise_suppression.sh
+just enable-noise-suppression
 export INPUT_DEVICE_NAME=PiSat-NS
 ```
 
@@ -77,7 +77,7 @@ The included `alexa_v0.1` model was trained with:
 When running with debug mode, you'll see real-time monitoring:
 
 ```bash
-./pi-sat.sh run_debug
+just run-debug
 ```
 
 **Output** (every 0.5 seconds):
@@ -99,7 +99,7 @@ When running with debug mode, you'll see real-time monitoring:
 
 1. **Enable PipeWire noise suppression** (optional):
    ```bash
-   scripts/enable_noise_suppression.sh
+   just enable-noise-suppression
    export INPUT_DEVICE_NAME=PiSat-NS
    ```
 
@@ -115,7 +115,7 @@ When running with debug mode, you'll see real-time monitoring:
 
 5. **Run debug mode** to see confidence scores:
    ```bash
-   ./pi-sat.sh run_debug
+   just run-debug
    # Say "Alexa" and watch the confidence scores
    ```
 
@@ -130,7 +130,7 @@ When running with debug mode, you'll see real-time monitoring:
 
 2. **Enable PipeWire noise suppression** (optional, helps reduce false positives):
    ```bash
-   scripts/enable_noise_suppression.sh
+   just enable-noise-suppression
    export INPUT_DEVICE_NAME=PiSat-NS
    ```
 
@@ -151,7 +151,7 @@ When running with debug mode, you'll see real-time monitoring:
 
 ```bash
 # Optional: enable PipeWire noise suppression
-scripts/enable_noise_suppression.sh
+just enable-noise-suppression
 export INPUT_DEVICE_NAME=PiSat-NS
 
 # Adjust threshold for noisier environments
@@ -173,7 +173,7 @@ export WAKE_WORD_THRESHOLD=0.20
 Use debug mode to find optimal threshold:
 
 ```bash
-./pi-sat.sh run_debug
+just run-debug
 
 # Say "Alexa" multiple times at different volumes/distances
 # Watch the confidence scores
@@ -232,6 +232,6 @@ pactl set-source-volume @DEFAULT_SOURCE@ 80%
 1. Keep current defaults (VAD 0.6)
 2. Use debug mode to verify detection
 3. Adjust `WAKE_WORD_THRESHOLD` based on environment
-4. Run `./fix_mic_volume.sh` to ensure optimal mic levels
+4. Run `just fix-mic-volume` to ensure optimal mic levels
 
 **Current configuration is optimized for music playback and background noise.**

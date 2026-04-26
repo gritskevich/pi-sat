@@ -27,7 +27,7 @@ Wants=mpd.service
 Type=simple
 WorkingDirectory=/home/dmitry/pi-sat
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=/home/dmitry/pi-sat/pi-sat.sh run
+ExecStart=/usr/bin/just run
 
 Restart=always
 RestartSec=5
@@ -43,7 +43,7 @@ SyslogIdentifier=pi-sat
 WantedBy=default.target
 ```
 
-`pi-sat.sh run` calls `ensure_mpd()` as a defense-in-depth safety net in case user MPD isn't up.
+`just run` runs the `_mpd` helper recipe as a defense-in-depth safety net in case user MPD isn't up.
 
 ## Installation
 
@@ -108,6 +108,6 @@ hailo_pci
 ## Manual Testing (without systemd)
 
 ```bash
-./pi-sat.sh run         # foreground
-./pi-sat.sh run_debug   # foreground + RMS + confidence scores
+just run         # foreground
+just run-debug   # foreground + RMS + confidence scores
 ```

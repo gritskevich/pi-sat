@@ -12,8 +12,9 @@ Type=simple
 WorkingDirectory=/home/dmitry/pi-sat
 Environment="PYTHONUNBUFFERED=1"
 
-# pi-sat.sh run ensures MPD is up before the orchestrator connects (defense in depth)
-ExecStart=/home/dmitry/pi-sat/pi-sat.sh run
+# `just run` depends on _mpd + _venv recipes (defense in depth: starts MPD,
+# checks venv) before exec'ing modules/orchestrator.py.
+ExecStart=/usr/bin/just run
 
 Restart=always
 RestartSec=5

@@ -9,10 +9,11 @@ Wake ("Alexa") → Record (VAD) → STT (Hailo Whisper) → Intent → MPD → T
 ## Fast Commands
 
 ```bash
-./pi-sat.sh install    # Setup venv, deps, models (auto-detects Python 3.11/3.13)
-./pi-sat.sh run        # Start
-./pi-sat.sh run_debug  # Start with continuous monitoring (RMS + confidence scores)
-pytest tests/ -q       # Test
+just install     # Setup venv, deps, models (auto-detects Python 3.11/3.13)
+just run         # Start
+just run-debug   # Start with continuous monitoring (RMS + confidence scores)
+just test        # pytest -q
+just             # List all recipes
 ```
 
 ## System Requirements
@@ -86,8 +87,8 @@ ACTIVE_INTENTS = {
 
 **Debug wake word detection**:
 ```bash
-./pi-sat.sh run_debug   # Full system with debug output (RMS + confidence)
-./pi-sat.sh test_wake   # 60-second isolated wake word test (diagnostics)
+just run-debug   # Full system with debug output (RMS + confidence)
+just test-wake   # 60-second isolated wake word test (diagnostics)
 ```
 
 **Tune wake word sensitivity**:

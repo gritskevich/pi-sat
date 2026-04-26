@@ -59,7 +59,7 @@ class WakeWordListener(BaseModule):
         super().__init__(__name__, debug=debug, verbose=verbose, event_bus=event_bus)
         if Model is None or openwakeword_utils is None:
             raise RuntimeError(
-                "openwakeword is not installed. Install dependencies via `./pi-sat.sh install` "
+                "openwakeword is not installed. Install dependencies via `just install` "
                 "or `pip install openwakeword`."
             )
 

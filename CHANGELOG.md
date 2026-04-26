@@ -4,6 +4,14 @@ All notable changes to Pi-Sat are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **Task runner is now `just`** — `pi-sat.sh` and the `scripts/pisat-*.sh`
+  helpers are removed. New entrypoint: `Justfile` at the repo root.
+  Heavy install/daemon logic stays in `scripts/pisat-install.sh` and
+  `install-daemon.sh`, dispatched via `just install` / `just daemon …`.
+  Recipe names use kebab-case (`just run-debug`, `just test-wake`).
+  New: `just say "<text>"` for ad-hoc French TTS.
+
 ### In Progress
 - Mic mute detector implementation
 - End-to-end hardware testing on RPi 5

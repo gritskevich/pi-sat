@@ -30,7 +30,7 @@
 ```bash
 git clone https://github.com/gritskevich/pi-sat.git
 cd pi-sat
-./pi-sat.sh install
+just install
 ```
 
 **Verify:**
@@ -43,7 +43,7 @@ cd pi-sat
 
 ```bash
 # TTS voice model (~60MB)
-./pi-sat.sh download_voice
+just download-voice
 
 # Verify Hailo models were downloaded by install script
 ls hailo_examples/speech_recognition/app/hefs/h8l/base/*.hef | wc -l
@@ -132,7 +132,7 @@ rm test.wav
 ### Test 3: Hailo STT Quick Test
 
 ```bash
-./pi-sat.sh hailo_check
+just hailo-check
 ```
 
 **Expected output:**
@@ -152,7 +152,7 @@ Pipeline init: OK
 
 ```bash
 # Run in debug mode
-./pi-sat.sh run_debug
+just run-debug
 # Say "Alexa" multiple times
 # Press Ctrl+C to exit
 ```
@@ -170,7 +170,7 @@ Pipeline init: OK
 ### Test 5: End-to-End Voice Command
 
 ```bash
-./pi-sat.sh run
+just run
 # Wait for "Listening for wake word..."
 # Say: "Alexa"
 # Wait for beep
@@ -277,20 +277,20 @@ sudo systemctl restart pisat.service
 mpd --kill && mpd ~/.mpd/mpd.conf
 
 # Clear logs
-./pi-sat.sh logs_clear
+just logs-clear
 
 # Reinstall (preserve config)
 cd ~/pi-sat
 git pull
-./pi-sat.sh install
+just install
 
 # Full reinstall (nuclear option)
 cd ~
 rm -rf pi-sat
 git clone https://github.com/gritskevich/pi-sat.git
 cd pi-sat
-./pi-sat.sh install
-./pi-sat.sh download_voice
+just install
+just download-voice
 ```
 
 ---
@@ -350,8 +350,8 @@ tar xzf ~/pisat-backup-*.tar.gz -C ~/
 ### Model Files (Do Not Backup)
 
 Models are large and should be re-downloaded:
-- Hailo models: Run `./pi-sat.sh install`
-- TTS voices: Run `./pi-sat.sh download_voice`
+- Hailo models: Run `just install`
+- TTS voices: Run `just download-voice`
 - Wake word models: Auto-downloaded on first run
 
 ---

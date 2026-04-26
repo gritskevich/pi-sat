@@ -1,10 +1,10 @@
 """
 This setup helper is deprecated.
 
-All setup is now handled by the top-level script `pi-sat.sh` to keep a single
+All setup is now handled by the top-level `Justfile` to keep a single
 virtual environment and avoid duplication. To set up everything, run:
 
-    bash ./pi-sat.sh install
+    just install
 
 This file remains only as documentation for existing references.
 """
@@ -25,7 +25,7 @@ def download_resources():
 
 
 def main():
-    print("This setup is deprecated. Use 'bash ./pi-sat.sh install' at repo root.")
+    print("This setup is deprecated. Use 'just install' at repo root.")
     # Still allow resource download if someone runs this directly
     download_resources()
 

@@ -52,7 +52,7 @@ OUTPUT_ALSA_DEVICE = 'default'
 
 ✅ **Optional: Enable PipeWire noise suppression (KISS)**:
 ```bash
-scripts/enable_noise_suppression.sh
+just enable-noise-suppression
 export INPUT_DEVICE_NAME=PiSat-NS
 ```
 

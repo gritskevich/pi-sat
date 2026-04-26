@@ -167,7 +167,7 @@ pytest tests/test_e2e_french.py -v -s
 **Wake word not detected:**
 - Check audio quality (should hear clear "Alexa")
 - Verify wake word threshold in config.py
-- Test with: `./pi-sat.sh run_debug`
+- Test with: `just run-debug`
 
 ## Maintenance
 

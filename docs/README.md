@@ -6,8 +6,9 @@ Quick reference for common tasks.
 
 - **INSTALL.md** (root) – Hardware setup + installation
 - **DEPLOYMENT.md** (root) – Production deployment checklist
-- **pi-sat.sh** – Main entrypoint (dispatcher for install/run/tools)
-- **scripts/pisat-*.sh** – Split modules: install, run, tools
+- **Justfile** (root) – Main entrypoint. `just` to list, `just run` / `just install` / `just say "<text>"` / `just test` / `just daemon …`
+- **scripts/pisat-install.sh** – Heavy install logic (apt + pip + models), invoked by `just install`
+- **install-daemon.sh** – Systemd unit installer, invoked by `just daemon`
 
 ## Development
 

@@ -6,7 +6,7 @@ Short, high-signal triage for Pi‑Sat.
 
 ```bash
 # Live pipeline logs (wake → record → STT → intent)
-./pi-sat.sh run_live
+just run-live
 
 # MPD basics
 mpc status
@@ -17,7 +17,7 @@ aplay -l
 arecord -l
 
 # Hailo sanity check
-./pi-sat.sh hailo_check
+just hailo-check
 ```
 
 ## No Sound (music / beep / TTS)
@@ -57,7 +57,7 @@ systemctl --user status pipewire pipewire-pulse wireplumber
   - Lower `VOLUME_DUCK_LEVEL` (even `0`)
   - Reduce mic gain / disable AGC (hardware dependent)
 - Debug:
-  - `./pi-sat.sh run_debug` (watch confidence and timing)
+  - `just run-debug` (watch confidence and timing)
 
 ## STT Problems (Hailo Whisper)
 
@@ -77,8 +77,8 @@ systemctl --user status pipewire pipewire-pulse wireplumber
 ```bash
 killall python3 || true
 mpd --kill || true
-./pi-sat.sh logs_clear
-./pi-sat.sh run
+just logs-clear
+just run
 ```
 
 ## System Freeze (No Ctrl+C) - FIXED

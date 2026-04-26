@@ -12,16 +12,18 @@ Offline, local‑first voice‑controlled music player for kids (Raspberry Pi 5 
 ## Quick start
 
 ```bash
-./pi-sat.sh install
-./pi-sat.sh download_voice
+just install
+just download-voice
 
 # MPD needs a config at ~/.mpd/mpd.conf (see INSTALL.md), then:
 mpc update
 
-./pi-sat.sh run
+just run        # or: just run-debug, just listen, just say "bonjour"
+just            # list all recipes
 ```
 
-`pi-sat.sh` is a thin dispatcher; module scripts live in `scripts/pisat-*.sh`.
+`Justfile` is a thin dispatcher; heavy install/daemon logic stays in
+`scripts/pisat-install.sh` and `install-daemon.sh`.
 
 ## Voice commands (active intents)
 
